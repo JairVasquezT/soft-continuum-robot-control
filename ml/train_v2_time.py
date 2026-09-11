@@ -1,0 +1,281 @@
+import argparse
+import json
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--window_size', type=int, default=90)
+parser.add_argument('--output', type=str, default='soft_robot_lstm_v2_13_time_best.pth')
+parser.add_argument('--hidden_size', type=int, default=128)
+parser.add_argument('--num_layers', type=int, default=2)
+parser.add_argument('--dropout', type=float, default=0.2)
+parser.add_argument('--lr', type=float, default=0.00025)
+args = parser.parse_args()
+
+# ==========================================
+# 1. CONFIGURACIÓN Y CARGA DE DATOS (VERSION V2)
+# ==========================================
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f'🔥 Entrenando en el dispositivo: {device}')
+
+# Cargar el dataset v2 (9 columnas de entrada)
+data_v2 = np.load(
+    'dataset_v02_real_meta_sinRot_filt.npy', allow_pickle=True
+).item()
+X_raw = data_v2['X']  # shape: (N, 9)
+Y_raw = data_v2['Y']  # shape: (N, 3) -> rel_x, rel_y, rel_z
+
+# Cargar los parámetros de normalización JSON
+with open('dataset_v02_real_meta_sinRot_filt_params.json', 'r') as f:
+  norm_params = json.load(f)
+
+X_TRANS = norm_params['X_transformer']
+Y_TRANS = norm_params['Y_transformer']
+
+
+# ==========================================
+# 2. VENTANADO CON SPLIT TRAIN/VAL REPARTIDO Y SIN FUGA
+# ==========================================
+# La grabación se divide en N_BLOQUES contiguos a lo largo de TODA la
+# secuencia (no solo el tramo final); una fracción FRAC_VAL de esos
+# bloques, repartidos uniformemente, se reserva para validación. Cualquier
+# ventana cuyo rango de filas cruce el borde entre un bloque de train y uno
+# de val se descarta por completo, así ningún par comparte un solo paso
+# entre ambos conjuntos (misma estrategia que train_v8_time_100_2.py).
+FRAC_VAL = 0.10
+N_BLOQUES = 20
+
+
+def crear_secuencias_split(X, Y, window_size=90, frac_val=FRAC_VAL, n_bloques=N_BLOQUES):
+  n_total = len(X)
+  tam_bloque = n_total // n_bloques
+  n_bloques_val = max(1, round(n_bloques * frac_val))
+  paso = n_bloques / n_bloques_val
+  bloques_val = {
+      int(round(paso / 2 + i * paso)) % n_bloques for i in range(n_bloques_val)
+  }
+
+  def bloque_de(idx_fila):
+    return min(idx_fila // tam_bloque, n_bloques - 1)
+
+  datos = {'train': ([], []), 'val': ([], [])}
+  descartadas = 0
+
+  for i in range(n_total - window_size):
+    bloque_inicio = bloque_de(i)
+    bloque_fin = bloque_de(i + window_size)
+    if bloque_inicio != bloque_fin:
+      descartadas += 1
+      continue
+
+    destino = 'val' if bloque_inicio in bloques_val else 'train'
+    X_l, Y_l = datos[destino]
+    X_l.append(X[i : i + window_size])
+    Y_l.append(Y[i + window_size])
+
+  print(f'   (bloques de validación repartidos: {sorted(bloques_val)}/{n_bloques} '
+        f'| {descartadas} ventanas descartadas por cruzar un borde de bloque)')
+
+  return {
+      'train': (np.array(datos['train'][0]), np.array(datos['train'][1])),
+      'val': (np.array(datos['val'][0]), np.array(datos['val'][1])),
+  }
+
+
+WINDOW_SIZE = args.window_size
+split = crear_secuencias_split(X_raw, Y_raw, WINDOW_SIZE)
+X_train, y_train = split['train']
+X_val, y_val = split['val']
+
+print(f'📦 Muestras de entrenamiento: {len(X_train)} | Muestras de validación: {len(X_val)}')
+
+# DataLoaders separados
+train_loader = DataLoader(
+    TensorDataset(
+        torch.tensor(X_train, dtype=torch.float32),
+        torch.tensor(y_train, dtype=torch.float32),
+    ),
+    batch_size=64, shuffle=True,
+)
+val_loader = DataLoader(
+    TensorDataset(
+        torch.tensor(X_val, dtype=torch.float32),
+        torch.tensor(y_val, dtype=torch.float32),
+    ),
+    batch_size=64, shuffle=False,
+)
+
+
+# ==========================================
+# 3. FUNCIÓN DE PÉRDIDA FÍSICAMENTE INSPIRADA (PINN CUSTOM LOSS)
+# ==========================================
+class RobotBlandoLoss(nn.Module):
+
+  def __init__(
+      self,
+      y_params,
+      w_pinn=0.1,
+      w_sph_max=1.0,
+      w_sph_min=1.0,
+      w_cyl_max=1.0,
+  ):
+    super(RobotBlandoLoss, self).__init__()
+    self.base_loss = nn.HuberLoss()  # Pérdida base robusta
+    self.w_pinn = w_pinn
+    self.w_sph_max = w_sph_max
+    self.w_sph_min = w_sph_min
+    self.w_cyl_max = w_cyl_max
+
+    # Guardar constantes de desescalado para rel_x, rel_y, rel_z
+    self.min_x, self.max_x = (
+        y_params['rel_x']['min_t'],
+        y_params['rel_x']['max_t'],
+    )
+    self.min_y, self.max_y = (
+        y_params['rel_y']['min_t'],
+        y_params['rel_y']['max_t'],
+    )
+    self.min_z, self.max_z = (
+        y_params['rel_z']['min_t'],
+        y_params['rel_z']['max_t'],
+    )
+
+  def forward(self, y_pred, y_true):
+    # 1. Pérdida estándar en el espacio normalizado [-1, 1]
+    loss_base = self.base_loss(y_pred, y_true)
+
+    # 2. Desescalar predicciones a dimensiones físicas reales
+    x_real = self.min_x + (y_pred[:, 0] + 1.0) * (self.max_x - self.min_x) / 2.0
+    y_real = self.min_y + (y_pred[:, 1] + 1.0) * (self.max_y - self.min_y) / 2.0
+    z_real = self.min_z + (y_pred[:, 2] + 1.0) * (self.max_z - self.min_z) / 2.0
+
+    # 3. Restricciones geométricas reales
+    dist_esferica_cuadrada = x_real**2 + y_real**2 + z_real**2
+    dist_cilindrica_cuadrada = x_real**2 + z_real**2
+
+    # A) Esfera Máxima: r <= 0.335 m
+    pen_sph_max = torch.relu(dist_esferica_cuadrada - 0.335**2)
+
+    # B) Esfera Mínima: r >= 0.22 m
+    pen_sph_min = torch.relu(0.22**2 - dist_esferica_cuadrada)
+
+    # C) Cilindro Máximo: r_cyl <= 0.23 m
+    pen_cyl_max = torch.relu(dist_cilindrica_cuadrada - 0.23**2)
+
+    # Penalización PINN promedio
+    loss_pinn = (
+        self.w_sph_max * torch.mean(pen_sph_max)
+        + self.w_sph_min * torch.mean(pen_sph_min)
+        + self.w_cyl_max * torch.mean(pen_cyl_max)
+    )
+
+    return loss_base + self.w_pinn * loss_pinn
+
+
+criterion = RobotBlandoLoss(y_params=Y_TRANS, w_pinn=0.05)
+
+
+# ==========================================
+# 4. ARQUITECTURA LSTM
+# ==========================================
+class SoftRobotLSTM(nn.Module):
+
+  def __init__(
+      self,
+      input_size=9,
+      hidden_size=128,
+      num_layers=2,
+      output_size=3,
+      dropout=0.2,
+  ):
+    super(SoftRobotLSTM, self).__init__()
+    self.num_layers = num_layers
+    self.hidden_size = hidden_size
+    self.dropout = nn.Dropout(dropout)
+    self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+    self.fc = nn.Linear(hidden_size, output_size)
+
+  def forward(self, x):
+    # PyTorch gestiona los estados h0 y c0 automáticamente si se omiten
+    out, _ = self.lstm(x)
+    last_step = out[:, -1, :]
+    out_regularized = self.dropout(last_step)
+    return self.fc(out_regularized)
+
+
+# Instanciar Modelo, Optimidador y SCHEDULER
+model = SoftRobotLSTM(
+    input_size=9, hidden_size=args.hidden_size, num_layers=args.num_layers,
+    output_size=3, dropout=args.dropout,
+).to(device)
+optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+
+# SCHEDULER: Reduce el LR si val_loss no mejora tras 8 épocas
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer, mode='min', factor=0.5, patience=8, min_lr=1e-6
+)
+
+# ==========================================
+# 5. BUCLE DE ENTRENAMIENTO Y VALIDACIÓN
+# ==========================================
+PATH_PESOS_SALIDA = args.output
+EPOCHS = 100
+best_val_loss = float('inf')
+
+print(
+    '🚀 Iniciando entrenamiento del modelo V2 con Física, Scheduler y'
+    ' Validación...'
+)
+
+for epoch in range(EPOCHS):
+  # --- FASE DE ENTRENAMIENTO ---
+  model.train()
+  train_loss = 0.0
+  for batch_X, batch_y in train_loader:
+    batch_X, batch_y = batch_X.to(device), batch_y.to(device)
+
+    optimizer.zero_grad()
+    predictions = model(batch_X)
+    loss = criterion(predictions, batch_y)
+    loss.backward()
+
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+    optimizer.step()
+    train_loss += loss.item()
+
+  avg_train_loss = train_loss / len(train_loader)
+
+  # --- FASE DE VALIDACIÓN ---
+  model.eval()
+  val_loss = 0.0
+  with torch.no_grad():
+    for batch_X_v, batch_y_v in val_loader:
+      batch_X_v, batch_y_v = batch_X_v.to(device), batch_y_v.to(device)
+      preds_v = model(batch_X_v)
+      loss_v = criterion(preds_v, batch_y_v)
+      val_loss += loss_v.item()
+
+  avg_val_loss = val_loss / len(val_loader)
+
+  # Actualizar el Scheduler usando la PÉRDIDA DE VALIDACIÓN
+  scheduler.step(avg_val_loss)
+
+  # Guardar solo el MEJOR modelo según la pérdida de validación
+  if avg_val_loss < best_val_loss:
+    best_val_loss = avg_val_loss
+    torch.save(model.state_dict(), PATH_PESOS_SALIDA)
+
+  # Imprimir progreso cada 5 épocas y mostrar el LR actual
+  if (epoch + 1) % 5 == 0 or epoch == 0:
+    current_lr = optimizer.param_groups[0]['lr']
+    print(
+        f'Época [{epoch+1:03d}/{EPOCHS}] -> Loss Train: {avg_train_loss:.5f} |'
+        f' Loss Val: {avg_val_loss:.5f} | LR: {current_lr:.6f}'
+    )
+
+print(
+    f'🧠 Entrenamiento finalizado. El mejor modelo se guardó con Val Loss:'
+    f' {best_val_loss:.5f}'
+)

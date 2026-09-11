@@ -1,0 +1,22 @@
+Comando: C:\Users\BEN AMAR\AppData\Local\Programs\Python\Python312\python.exe -u C:\Users\BEN AMAR\OneDrive\桌面\Data\code\continuum_robot\ml\train_v7_time.py --output soft_robot_lstm_v7_11_w90_mas_profunda.pth --window_size 90 --num_layers 3 --dropout 0.3
+Inicio: 2026-08-18 07:58:54.968326
+
+🔥 Entrenando Modelo V7 Single-Stream (13 Entradas -> 3 Salidas) en: cuda
+📊 Características detectadas -> Entradas (X): 13 | Salidas (Y): 3
+   (bloques de validación repartidos: [5, 15]/20 | 1710 ventanas descartadas por cruzar un borde de bloque)
+📦 Muestras de entrenamiento: 102809 | Muestras de validación: 11422
+🚀 Iniciando entrenamiento V7 Single-Stream (Ventana=90 | 13 Entradas)...
+Época [10/100] -> Train Loss: 0.000465 | Val Loss: 0.000152 | LR: 0.000500
+Época [20/100] -> Train Loss: 0.000456 | Val Loss: 0.000128 | LR: 0.000500
+Época [30/100] -> Train Loss: 0.000454 | Val Loss: 0.000186 | LR: 0.000500
+Época [40/100] -> Train Loss: 0.000452 | Val Loss: 0.000162 | LR: 0.000500
+Época [50/100] -> Train Loss: 0.000444 | Val Loss: 0.000130 | LR: 0.000250
+Época [60/100] -> Train Loss: 0.000444 | Val Loss: 0.000110 | LR: 0.000125
+Época [70/100] -> Train Loss: 0.000440 | Val Loss: 0.000107 | LR: 0.000125
+Época [80/100] -> Train Loss: 0.000437 | Val Loss: 0.000116 | LR: 0.000063
+Época [90/100] -> Train Loss: 0.000437 | Val Loss: 0.000108 | LR: 0.000063
+Época [100/100] -> Train Loss: 0.000439 | Val Loss: 0.000109 | LR: 0.000031
+
+🧠 Entrenamiento V7 Single-Stream completado. Mejor modelo guardado con Val Loss: 0.000090 en soft_robot_lstm_v7_11_w90_mas_profunda.pth
+
+Fin: 2026-08-18 08:17:40.166150 | Duración: 0:18:45.197824 | Código salida: 0

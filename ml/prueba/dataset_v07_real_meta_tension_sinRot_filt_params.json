@@ -1,0 +1,76 @@
+{
+    "X_transformer": {
+        "delta_real_m1": {
+            "min_t": -650.0,
+            "max_t": 650.0
+        },
+        "delta_real_m2": {
+            "min_t": -650.0,
+            "max_t": 650.0
+        },
+        "delta_real_m3": {
+            "min_t": -750.0,
+            "max_t": 750.0
+        },
+        "delta_real_m4": {
+            "min_t": -750.0,
+            "max_t": 750.0
+        },
+        "delta_t": {
+            "min_t": 0.016,
+            "max_t": 0.033
+        },
+        "delta_meta_m1": {
+            "min_t": -650.0,
+            "max_t": 650.0
+        },
+        "delta_meta_m2": {
+            "min_t": -650.0,
+            "max_t": 650.0
+        },
+        "delta_meta_m3": {
+            "min_t": -750.0,
+            "max_t": 750.0
+        },
+        "delta_meta_m4": {
+            "min_t": -750.0,
+            "max_t": 750.0
+        },
+        "tension_m1": {
+            "min_t": 500.0,
+            "max_t": 2000.0
+        },
+        "tension_m2": {
+            "min_t": 500.0,
+            "max_t": 2000.0
+        },
+        "tension_m3": {
+            "min_t": 500.0,
+            "max_t": 2000.0
+        },
+        "tension_m4": {
+            "min_t": 500.0,
+            "max_t": 2000.0
+        }
+    },
+    "Y_transformer": {
+        "rel_x": {
+            "min_t": -0.22,
+            "max_t": 0.22
+        },
+        "rel_y": {
+            "min_t": 0.18,
+            "max_t": 0.33
+        },
+        "rel_z": {
+            "min_t": -0.22,
+            "max_t": 0.22
+        }
+    },
+    "home_motores": {
+        "m1": 1871.0,
+        "m2": 1951.0,
+        "m3": 1485.0,
+        "m4": 1712.0
+    }
+}

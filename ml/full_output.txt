@@ -1,0 +1,43 @@
+﻿🚀 Evaluando en dispositivo: cuda
+✓ Dataset de Prueba Cargado: 28537 muestras válidas generadas (horizonte de comando constante: media=7.32/10).
+
+====================================================
+📊 RESULTADOS DE EVALUACIÓN DEL PREDICTOR EN DATASET CORTO
+====================================================
+(solo pasos con comando constante desde t+1: 208898 de 285370 pasos totales)
+Error MAE Eje X: 3.615 mm
+Error MAE Eje Y: 1.724 mm
+Error MAE Eje Z: 3.516 mm
+📐 ERROR DE DISTANCIA EUCLÍDEA 3D PROMEDIO: 6.025 mm
+
+--- ERROR PROMEDIO 3D PASO A PASO EN EL HORIZONTE FUTURO (solo comando constante) ---
+Paso t+01 (16.7 ms): Error 3D = 6.395 mm (28537/28537 muestras)
+Paso t+02 (33.3 ms): Error 3D = 6.193 mm (26837/28537 muestras)
+Paso t+03 (50.0 ms): Error 3D = 6.034 mm (25137/28537 muestras)
+Paso t+04 (66.7 ms): Error 3D = 5.907 mm (23438/28537 muestras)
+Paso t+05 (83.3 ms): Error 3D = 5.843 mm (21739/28537 muestras)
+Paso t+06 (100.0 ms): Error 3D = 5.792 mm (20040/28537 muestras)
+Paso t+07 (116.7 ms): Error 3D = 5.825 mm (18341/28537 muestras)
+Paso t+08 (133.3 ms): Error 3D = 5.920 mm (16642/28537 muestras)
+Paso t+09 (150.0 ms): Error 3D = 5.989 mm (14943/28537 muestras)
+Paso t+10 (166.7 ms): Error 3D = 6.171 mm (13244/28537 muestras)
+
+--- ERROR ANGULAR (3D) ENTRE DESPLAZAMIENTO PREDICHO Y REAL, SALTO=4 PASOS ---
+Transición t+01 -> t+05: ángulo medio =  82.84° (5101/28537 muestras válidas)
+Transición t+02 -> t+06: ángulo medio =  78.99° (4919/28537 muestras válidas)
+Transición t+03 -> t+07: ángulo medio =  84.98° (7033/28537 muestras válidas)
+Transición t+04 -> t+08: ángulo medio =  86.89° (7428/28537 muestras válidas)
+Transición t+05 -> t+09: ángulo medio =  85.26° (6350/28537 muestras válidas)
+Transición t+06 -> t+10: ángulo medio =  86.68° (5955/28537 muestras válidas)
+
+📐 ÁNGULO MEDIO GLOBAL (todas las transiciones válidas): 84.59°
+Ángulo medio (solo desplazamientos > 1.0mm, comando constante en el tramo): 82.57° (72099 muestras)
+
+📍 Ventana de historial: filas 12715-12759 (t0 = fila 12759)
+
+Comparación de posición final predicha (t+10) para distintos u_cand:
+
+u_cand (ticks)=[500 500 500 500] -> posición final t+10 (mm): x=-0.2, y=263.3, z=132.6
+u_cand (ticks)=[-500 -500 -500 -500] -> posición final t+10 (mm): x=28.3, y=274.5, z=131.4
+u_cand (ticks)=[ 500 -500  500 -500] -> posición final t+10 (mm): x=-23.9, y=268.1, z=135.0
+u_cand (ticks)=[0 0 0 0] -> posición final t+10 (mm): x=7.6, y=270.0, z=134.7

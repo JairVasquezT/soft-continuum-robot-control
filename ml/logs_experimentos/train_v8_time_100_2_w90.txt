@@ -1,0 +1,40 @@
+Comando: C:\Users\BEN AMAR\AppData\Local\Programs\Python\Python312\python.exe -u C:\Users\BEN AMAR\OneDrive\桌面\Data\code\continuum_robot\ml\train_v8_time_100_2.py --output soft_robot_lstm_v8_17_w90_vel.pth --window_size 90
+Inicio: 2026-08-18 00:50:12.949367
+
+🔥 Entrenando Modelo V8 (estándar, sin velocidad) en: cuda
+📊 Entradas: 17 | Salidas: 3
+   (bloques de validación repartidos: [5, 15]/20 | 1710 ventanas descartadas por cruzar un borde de bloque)
+📦 Muestras de entrenamiento: 102809 | Muestras de validación: 11422
+🚀 Iniciando entrenamiento estándar (ventana=90)...
+Época [1/100] -> Train: 0.000366 | Val: 0.000138 | LR: 0.000500 ⭐ [Guardado]
+Época [2/100] -> Train: 0.000241 | Val: 0.000099 | LR: 0.000500 ⭐ [Guardado]
+Época [3/100] -> Train: 0.000227 | Val: 0.000097 | LR: 0.000500 ⭐ [Guardado]
+Época [4/100] -> Train: 0.000219 | Val: 0.000095 | LR: 0.000500 ⭐ [Guardado]
+Época [6/100] -> Train: 0.000208 | Val: 0.000088 | LR: 0.000500 ⭐ [Guardado]
+Época [8/100] -> Train: 0.000201 | Val: 0.000067 | LR: 0.000500 ⭐ [Guardado]
+Época [10/100] -> Train: 0.000195 | Val: 0.000067 | LR: 0.000500 
+Época [14/100] -> Train: 0.000188 | Val: 0.000061 | LR: 0.000500 ⭐ [Guardado]
+Época [18/100] -> Train: 0.000183 | Val: 0.000056 | LR: 0.000500 ⭐ [Guardado]
+Época [20/100] -> Train: 0.000182 | Val: 0.000064 | LR: 0.000500 
+Época [21/100] -> Train: 0.000180 | Val: 0.000055 | LR: 0.000500 ⭐ [Guardado]
+Época [30/100] -> Train: 0.000175 | Val: 0.000054 | LR: 0.000500 ⭐ [Guardado]
+Época [32/100] -> Train: 0.000174 | Val: 0.000047 | LR: 0.000500 ⭐ [Guardado]
+Época [34/100] -> Train: 0.000173 | Val: 0.000047 | LR: 0.000500 ⭐ [Guardado]
+Época [40/100] -> Train: 0.000170 | Val: 0.000051 | LR: 0.000500 
+Época [41/100] -> Train: 0.000171 | Val: 0.000038 | LR: 0.000500 ⭐ [Guardado]
+Época [50/100] -> Train: 0.000169 | Val: 0.000037 | LR: 0.000500 ⭐ [Guardado]
+Época [60/100] -> Train: 0.000161 | Val: 0.000044 | LR: 0.000250 
+Época [62/100] -> Train: 0.000160 | Val: 0.000036 | LR: 0.000250 ⭐ [Guardado]
+Época [63/100] -> Train: 0.000161 | Val: 0.000035 | LR: 0.000250 ⭐ [Guardado]
+Época [66/100] -> Train: 0.000159 | Val: 0.000034 | LR: 0.000250 ⭐ [Guardado]
+Época [70/100] -> Train: 0.000160 | Val: 0.000047 | LR: 0.000250 
+Época [71/100] -> Train: 0.000160 | Val: 0.000032 | LR: 0.000250 ⭐ [Guardado]
+Época [80/100] -> Train: 0.000159 | Val: 0.000040 | LR: 0.000125 
+Época [81/100] -> Train: 0.000156 | Val: 0.000028 | LR: 0.000125 ⭐ [Guardado]
+Época [90/100] -> Train: 0.000156 | Val: 0.000036 | LR: 0.000063 
+Época [95/100] -> Train: 0.000154 | Val: 0.000028 | LR: 0.000063 ⭐ [Guardado]
+Época [98/100] -> Train: 0.000154 | Val: 0.000027 | LR: 0.000063 ⭐ [Guardado]
+Época [100/100] -> Train: 0.000154 | Val: 0.000028 | LR: 0.000063 
+🧠 Mejor checkpoint (Val Loss: 0.000027) guardado en 'soft_robot_lstm_v8_17_w90_vel.pth'
+
+Fin: 2026-08-18 01:08:52.736031 | Duración: 0:18:39.786664 | Código salida: 3221226505

@@ -1,0 +1,31 @@
+Comando: C:\Users\BEN AMAR\AppData\Local\Programs\Python\Python312\python.exe -u C:\Users\BEN AMAR\OneDrive\桌面\Data\code\continuum_robot\ml\train_v2_time.py --output soft_robot_lstm_v2_13_w75_time_best.pth --window_size 75
+Inicio: 2026-08-17 19:35:02.964101
+
+🔥 Entrenando en el dispositivo: cuda
+   (bloques de validación repartidos: [5, 15]/20 | 1425 ventanas descartadas por cruzar un borde de bloque)
+📦 Muestras de entrenamiento: 103079 | Muestras de validación: 11452
+🚀 Iniciando entrenamiento del modelo V2 con Física, Scheduler y Validación...
+Época [001/100] -> Loss Train: 0.00331 | Loss Val: 0.00024 | LR: 0.000250
+Época [005/100] -> Loss Train: 0.00055 | Loss Val: 0.00014 | LR: 0.000250
+Época [010/100] -> Loss Train: 0.00049 | Loss Val: 0.00008 | LR: 0.000250
+Época [015/100] -> Loss Train: 0.00046 | Loss Val: 0.00007 | LR: 0.000250
+Época [020/100] -> Loss Train: 0.00045 | Loss Val: 0.00007 | LR: 0.000250
+Época [025/100] -> Loss Train: 0.00045 | Loss Val: 0.00007 | LR: 0.000250
+Época [030/100] -> Loss Train: 0.00044 | Loss Val: 0.00005 | LR: 0.000250
+Época [035/100] -> Loss Train: 0.00044 | Loss Val: 0.00008 | LR: 0.000250
+Época [040/100] -> Loss Train: 0.00042 | Loss Val: 0.00005 | LR: 0.000125
+Época [045/100] -> Loss Train: 0.00042 | Loss Val: 0.00006 | LR: 0.000125
+Época [050/100] -> Loss Train: 0.00042 | Loss Val: 0.00005 | LR: 0.000125
+Época [055/100] -> Loss Train: 0.00041 | Loss Val: 0.00005 | LR: 0.000063
+Época [060/100] -> Loss Train: 0.00041 | Loss Val: 0.00005 | LR: 0.000063
+Época [065/100] -> Loss Train: 0.00041 | Loss Val: 0.00004 | LR: 0.000031
+Época [070/100] -> Loss Train: 0.00040 | Loss Val: 0.00004 | LR: 0.000031
+Época [075/100] -> Loss Train: 0.00040 | Loss Val: 0.00004 | LR: 0.000016
+Época [080/100] -> Loss Train: 0.00040 | Loss Val: 0.00003 | LR: 0.000016
+Época [085/100] -> Loss Train: 0.00040 | Loss Val: 0.00004 | LR: 0.000016
+Época [090/100] -> Loss Train: 0.00040 | Loss Val: 0.00003 | LR: 0.000008
+Época [095/100] -> Loss Train: 0.00040 | Loss Val: 0.00004 | LR: 0.000008
+Época [100/100] -> Loss Train: 0.00040 | Loss Val: 0.00004 | LR: 0.000004
+🧠 Entrenamiento finalizado. El mejor modelo se guardó con Val Loss: 0.00003
+
+Fin: 2026-08-17 19:51:20.677463 | Duración: 0:16:17.713362 | Código salida: 0

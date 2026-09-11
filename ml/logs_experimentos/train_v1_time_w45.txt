@@ -1,0 +1,36 @@
+Comando: C:\Users\BEN AMAR\AppData\Local\Programs\Python\Python312\python.exe -u C:\Users\BEN AMAR\OneDrive\桌面\Data\code\continuum_robot\ml\train_v1_time.py --output soft_robot_lstm_v1_18_w45_time.pth --window_size 45
+Inicio: 2026-08-17 17:31:40.477907
+
+🔥 Entrenando en el dispositivo: cuda
+   (bloques de validación repartidos: [5, 15]/20 | 855 ventanas descartadas por cruzar un borde de bloque)
+📦 Muestras de entrenamiento: 103619 | Muestras de validación: 11512
+🚀 Iniciando entrenamiento con PINN Loss y LR Scheduler...
+Época [1/100] -> Loss: 0.000354 | Val: 0.000181 | LR: 0.000500 ⭐ [Guardado]
+Época [2/100] -> Loss: 0.000228 | Val: 0.000119 | LR: 0.000500 ⭐ [Guardado]
+Época [3/100] -> Loss: 0.000220 | Val: 0.000113 | LR: 0.000500 ⭐ [Guardado]
+Época [6/100] -> Loss: 0.000206 | Val: 0.000081 | LR: 0.000500 ⭐ [Guardado]
+Época [10/100] -> Loss: 0.000195 | Val: 0.000136 | LR: 0.000500 
+Época [16/100] -> Loss: 0.000174 | Val: 0.000078 | LR: 0.000250 ⭐ [Guardado]
+Época [18/100] -> Loss: 0.000172 | Val: 0.000077 | LR: 0.000250 ⭐ [Guardado]
+Época [19/100] -> Loss: 0.000171 | Val: 0.000073 | LR: 0.000250 ⭐ [Guardado]
+Época [20/100] -> Loss: 0.000170 | Val: 0.000101 | LR: 0.000250 
+Época [21/100] -> Loss: 0.000170 | Val: 0.000071 | LR: 0.000250 ⭐ [Guardado]
+Época [22/100] -> Loss: 0.000169 | Val: 0.000060 | LR: 0.000250 ⭐ [Guardado]
+Época [30/100] -> Loss: 0.000162 | Val: 0.000078 | LR: 0.000250 
+Época [32/100] -> Loss: 0.000157 | Val: 0.000053 | LR: 0.000125 ⭐ [Guardado]
+Época [34/100] -> Loss: 0.000157 | Val: 0.000051 | LR: 0.000125 ⭐ [Guardado]
+Época [38/100] -> Loss: 0.000156 | Val: 0.000048 | LR: 0.000125 ⭐ [Guardado]
+Época [40/100] -> Loss: 0.000156 | Val: 0.000059 | LR: 0.000125 
+Época [48/100] -> Loss: 0.000153 | Val: 0.000047 | LR: 0.000063 ⭐ [Guardado]
+Época [50/100] -> Loss: 0.000152 | Val: 0.000045 | LR: 0.000063 ⭐ [Guardado]
+Época [60/100] -> Loss: 0.000151 | Val: 0.000050 | LR: 0.000031 
+Época [62/100] -> Loss: 0.000151 | Val: 0.000044 | LR: 0.000031 ⭐ [Guardado]
+Época [66/100] -> Loss: 0.000151 | Val: 0.000043 | LR: 0.000031 ⭐ [Guardado]
+Época [70/100] -> Loss: 0.000150 | Val: 0.000049 | LR: 0.000031 
+Época [80/100] -> Loss: 0.000150 | Val: 0.000046 | LR: 0.000016 
+Época [84/100] -> Loss: 0.000150 | Val: 0.000042 | LR: 0.000016 ⭐ [Guardado]
+Época [90/100] -> Loss: 0.000149 | Val: 0.000047 | LR: 0.000016 
+Época [100/100] -> Loss: 0.000149 | Val: 0.000044 | LR: 0.000008 
+🧠 Mejor checkpoint (Val Loss: 0.000042) guardado en 'soft_robot_lstm_v1_18_w45_time.pth'
+
+Fin: 2026-08-17 17:45:42.565810 | Duración: 0:14:02.087903 | Código salida: 0

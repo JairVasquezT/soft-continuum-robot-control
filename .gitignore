@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.class
+*.venv/
+venv/
+
+# Heavy Data & ML Datasets (>100MB)
+*.npy
+*.npz
+*.pth
+*.pt
+*.h5
+*.onnx
+*.pkl
+*.xlsx
+*.csv
+
+# Ignore heavy directories
+data/
+ml/dataset_*/
+
+# OS / Editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
