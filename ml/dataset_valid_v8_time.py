@@ -8,11 +8,11 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 # =====================================================================
-# 1. PANEL DE CONTROL (Configurado para Modelo V8 Completo)
+# 1. CONTROL PANEL (Configured for Full V8 Model)
 # =====================================================================
-VERSION_MODELO = "v8"  # Seleccionado modo V8 Completo (17 Entradas)
-WINDOW_SIZE = 240  # Ventana temporal de 240 muestras (4s a 60 Hz)
-BATCH_SIZE_EVAL = 512  # Inferencia por lotes protegida contra CUDA OOM
+VERSION_MODELO = "v8"  # Full V8 mode selected (17 Inputs)
+WINDOW_SIZE = 240  # Temporal window of 240 samples (4s at 60 Hz)
+BATCH_SIZE_EVAL = 512  # Batch inference protected against CUDA OOM
 
 PATH_CSV = "corto_20260730_164214_477.csv"
 PATH_PESOS = "soft_robot_lstm_v8_3_time.pth"
@@ -23,7 +23,7 @@ print(
     f"🔥 Procesando CSV con dispositivo: {device} | Modo: {VERSION_MODELO.upper()}"
 )
 
-# Diccionario de control de la arquitectura ampliado con V8
+# Architecture control dictionary extended with V8
 config_arquitectura = {
     "v1": {
         "input_size": 5,
@@ -65,12 +65,12 @@ config_arquitectura = {
         "input_size": 17,
         "output_size": 3,
         "y_keys": ["rel_x", "rel_y", "rel_z"],
-    },  # [NUEVO MODE V8]
+    },  # [NEW V8 MODE]
 }
 cfg = config_arquitectura[VERSION_MODELO]
 
 # =====================================================================
-# 2. CARGA DE PARÁMETROS MAESTROS DESDE EL JSON
+# 2. LOADING MASTER PARAMETERS FROM THE JSON
 # =====================================================================
 with open(PATH_JSON, "r") as f:
   norm_params = json.load(f)
@@ -78,7 +78,7 @@ with open(PATH_JSON, "r") as f:
 home = norm_params["home_motores"]
 
 # =====================================================================
-# 3. PROCESAMIENTO MECÁNICO Y GEOMÉTRICO (17 FEATURES)
+# 3. MECHANICAL AND GEOMETRIC PROCESSING (17 FEATURES)
 # =====================================================================
 print(f"📖 Leyendo archivo de telemetría original: {PATH_CSV}")
 
@@ -123,19 +123,19 @@ columnas_validas = [
 df = pd.read_csv(PATH_CSV, names=columnas_validas, header=0)
 df.columns = df.columns.str.strip()
 
-# Diferencial de tiempo dt
+# Time differential dt
 df["delta_t"] = df["t_relativo"].astype(float).diff().bfill()
 df = df.iloc[1:].reset_index(drop=True)
 
-# Deltas de los 4 motores restando la posición Home
+# Deltas of the 4 motors subtracting the Home position
 for i in range(1, 5):
   df[f"delta_real_m{i}"] = df[f"real_m{i}"].astype(float) - home[f"m{i}"]
   df[f"delta_meta_m{i}"] = df[f"meta_m{i}"].astype(float) - home[f"m{i}"]
-  # Asegurar casteo de torques y tensiones a float para V8
+  # Ensure torques and tensions are cast to float for V8
   df[f"couple_m{i}"] = df[f"couple_m{i}"].astype(float)
   df[f"tension_m{i}"] = df[f"tension_m{i}"].astype(float)
 
-# Transformación Kinemática de OptiTrack (Base -> Efector)
+# Kinematic Transformation of OptiTrack (Base -> End-effector)
 p_base = df[["base_x", "base_y", "base_z"]].astype(float).values
 p_efector = df[["efector_x", "efector_y", "efector_z"]].astype(float).values
 
@@ -165,9 +165,9 @@ df["rel_qx"], df["rel_qy"], df["rel_qz"], df["rel_qw"] = (
 )
 
 # =====================================================================
-# 4. NORMALIZACIÓN AUTOMÁTICA EN BASE AL JSON
+# 4. AUTOMATIC NORMALIZATION BASED ON THE JSON
 # =====================================================================
-# Se extraen automáticamente las 17 claves requeridas registradas en X_transformer
+# The 17 required keys registered in X_transformer are extracted automatically
 x_keys = list(norm_params["X_transformer"].keys())
 y_keys = cfg["y_keys"]
 
@@ -192,7 +192,7 @@ Y_scaled = normalizar_con_limites_json(
 )
 
 # =====================================================================
-# 5. VENTANADO TEMPORAL Y DATALOADER
+# 5. TEMPORAL WINDOWING AND DATALOADER
 # =====================================================================
 X_seq, Y_seq = [], []
 for i in range(len(X_scaled) - WINDOW_SIZE):
@@ -208,7 +208,7 @@ eval_loader = DataLoader(
 )
 
 # =====================================================================
-# 6. ARQUITECTURA DE LA RED E INICIALIZACIÓN
+# 6. NETWORK ARCHITECTURE AND INITIALIZATION
 # =====================================================================
 class SoftRobotLSTM(nn.Module):
 
@@ -241,7 +241,7 @@ model.load_state_dict(torch.load(PATH_PESOS, map_location=device))
 model.eval()
 
 # =====================================================================
-# 7. INFERENCIA EN LOTE Y DESNORMALIZACIÓN
+# 7. BATCH INFERENCE AND DENORMALIZATION
 # =====================================================================
 preds_list = []
 real_list = []
@@ -280,12 +280,12 @@ if cfg["output_size"] == 7:
       q_vectors, axis=1, keepdims=True
   )
 
-# Conversión a milímetros
+# Conversion to millimeters
 Y_real_mm = Y_real_phys[:, :3] * 1000.0
 Y_pred_mm = Y_pred_phys[:, :3] * 1000.0
 
 # =====================================================================
-# 8. CÁLCULO DE MÉTRICAS DE ERROR
+# 8. COMPUTATION OF ERROR METRICS
 # =====================================================================
 mae_ejes = np.mean(np.abs(Y_real_mm - Y_pred_mm), axis=0)
 error_euclidiano_3d = np.sqrt(np.sum((Y_real_mm - Y_pred_mm) ** 2, axis=1))
@@ -303,7 +303,7 @@ print(f"📐 ERROR DE DISTANCIA EUCLÍDEA 3D PROMEDIO: {mae_3d_promedio:.3f} mm"
 print("=======================================================\n")
 
 # =====================================================================
-# 9. VISUALIZACIÓN GRÁFICA COMPARATIVA
+# 9. COMPARATIVE GRAPHICAL VISUALIZATION
 # =====================================================================
 fig = plt.figure(figsize=(14, 6))
 

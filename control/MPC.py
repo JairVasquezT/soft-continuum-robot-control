@@ -10,7 +10,7 @@ from collections import deque
 from datetime import datetime
 
 # ==============================================================================
-# 0. CONFIGURACIÓN DE RUTAS E IMPORTS DE MÓDULOS DEL PROYECTO
+# 0. PATH CONFIGURATION AND PROJECT MODULE IMPORTS
 # ==============================================================================
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 if CURRENT_DIR not in sys.path:
@@ -26,7 +26,7 @@ import torch.nn as nn
 from scipy.signal import butter, lfilter, lfilter_zi
 from scipy.spatial.transform import Rotation as R
 
-# Importar solo los módulos que realmente existen en candidate.py
+# Import only the modules that actually exist in candidate.py
 try:
   from candidate import CandidateGenerator, MPCCostFunction, NeuralMPCController
 except ImportError as e:
@@ -50,7 +50,7 @@ except Exception:
 
 
 # ==============================================================================
-# 1. ARQUITECTURA DEL OBSERVADOR LSTM
+# 1. LSTM OBSERVER ARCHITECTURE
 # ==============================================================================
 class SoftRobotLSTM(nn.Module):
 
@@ -126,31 +126,31 @@ class MPCDirectPredictor(nn.Module):
     return y_pred_flat.view(-1, self.t_out, self.output_dim)
   
 # ==============================================================================
-# 2. CARGADOR INTELIGENTE DE MODELOS / CHECKPOINTS
+# 2. SMART MODEL / CHECKPOINT LOADER
 # ==============================================================================
 def _cargar_modelo_pytorch(path, device, tipo_modelo='predictor'):
-  """Carga inteligente de modelos PyTorch (.pth / .pt).
+  """Smart loader for PyTorch models (.pth / .pt).
 
-  Devuelve (model, window_size). window_size es la ventana T_IN con la que
-  se ENTRENÓ ese modelo en particular (puede diferir entre predictor y
-  observador -- ver checkpoint['window_size']/['t_in']); None si el
-  checkpoint no la declara (TorchScript, nn.Module suelto, o un state_dict
-  viejo sin esa clave), en cuyo caso el llamador debe usar un fallback.
+  Returns (model, window_size). window_size is the T_IN window with which
+  that particular model was TRAINED (it may differ between predictor and
+  observer -- see checkpoint['window_size']/['t_in']); None if the
+  checkpoint does not declare it (TorchScript, bare nn.Module, or an old
+  state_dict without that key), in which case the caller must use a fallback.
   """
-  # 1. Intentar TorchScript JIT
+  # 1. Try TorchScript JIT
   try:
     return torch.jit.load(path, map_location=device).to(device), None
   except Exception:
     pass
 
-  # 2. Cargar con torch.load
+  # 2. Load with torch.load
   checkpoint = torch.load(path, map_location=device)
 
-  # Caso A: Ya es un objeto nn.Module completo
+  # Case A: It is already a complete nn.Module object
   if isinstance(checkpoint, torch.nn.Module):
     return checkpoint.to(device), None
 
-  # Caso B: Es un diccionario Checkpoint
+  # Case B: It is a Checkpoint dictionary
   if isinstance(checkpoint, dict):
     print(
         f"📦 Checkpoint detectado en '{os.path.basename(path)}'."
@@ -160,7 +160,7 @@ def _cargar_modelo_pytorch(path, device, tipo_modelo='predictor'):
     window_size = checkpoint.get('window_size', checkpoint.get('t_in'))
 
     if tipo_modelo == 'predictor':
-      # Extraer los parámetros exactos con los que fue guardado
+      # Extract the exact parameters it was saved with
       model = MPCDirectPredictor(
           input_hist_dim=checkpoint['input_hist_dim'],
           u_cand_dim=checkpoint['u_cand_dim'],
@@ -187,7 +187,7 @@ def _cargar_modelo_pytorch(path, device, tipo_modelo='predictor'):
 
 
 # ==============================================================================
-# 3. PUNTOS OBJETIVO Y CONFIGURACIÓN INICIAL (EN MM)
+# 3. TARGET POINTS AND INITIAL CONFIGURATION (IN MM)
 # ==============================================================================
 WAYPOINTS_MM = np.array(
     [
@@ -202,11 +202,11 @@ WAYPOINTS_MM = np.array(
     dtype=np.float32,
 )
 
-# 🧪 Waypoints para run_experimento_repeticiones: los 5 de WAYPOINTS_MM más
-# los 2 casos de borde que estaban comentados arriba -- son justo los que
-# en producción mostraron el problema de límites/redundancia cinemática
-# (ver USAR_SEMILLAS_FIJAS/SEED_COMMANDS_TICKS más abajo), así que interesa
-# incluirlos explícitamente en la validación con repeticiones.
+# 🧪 Waypoints for run_experimento_repeticiones: the 5 from WAYPOINTS_MM plus
+# the 2 edge cases that were commented out above -- they are exactly the ones
+# that in production showed the limits/kinematic redundancy problem
+# (see USAR_SEMILLAS_FIJAS/SEED_COMMANDS_TICKS further below), so it is of
+# interest to include them explicitly in the validation with repetitions.
 WAYPOINTS_EXPERIMENTO_MM = np.array(
     [
         #1[101, 262, -44],
@@ -245,30 +245,30 @@ WAYPOINTS_EXPERIMENTO_MM = np.array(
 
 HOME_MOTORS = {f'm{mid}': cfg.HOME_POSITION[mid] for mid in cfg.MOTOR_IDS}
 
-# 🌱 Comandos semilla por TARGET -- DESACTIVADOS (USAR_SEMILLAS_FIJAS=False).
-# Se usaron para diagnosticar si el punto [-153,226,81]/[-63.6,278.9,-34]
-# eran alcanzables. Ahora que existe el multi-arranque del CEM (ver
-# NeuralMPCController.optimize), sembrar a mano sería "hacer trampa" para
-# evaluar si el multi-arranque solo puede encontrar buenas soluciones sin
-# ayuda -- se deja el diccionario como referencia/comparación, pero no se
-# usa para controlar el robot. Poner en True para volver a activarlo.
+# 🌱 Seed commands per TARGET -- DISABLED (USAR_SEMILLAS_FIJAS=False).
+# They were used to diagnose whether the points [-153,226,81]/[-63.6,278.9,-34]
+# were reachable. Now that the CEM multi-start exists (see
+# NeuralMPCController.optimize), seeding by hand would be "cheating" when
+# evaluating whether the multi-start alone can find good solutions without
+# help -- the dictionary is kept as a reference/comparison, but it is not
+# used to control the robot. Set to True to re-enable it.
 #
-# CORREGIDO (18/08): los valores de m4 originales (1104/1111) se habían
-# tomado de un frame EN TRANSICIÓN (el motor todavía moviéndose entre
-# lecturas consecutivas de waypoints_relativos_largo.csv, sin mantenerse
-# igual más de una fila), no del valor realmente asentado -- de ahí el
-# error reportado antes (5.8mm/~13mm). Verificado contra las mesetas reales
-# del CSV (m4 constante >=10 filas seguidas, motor detenido): el valor
-# asentado más cercano a cada target da ~1.45mm en ambos casos.
+# FIXED (18/08): the original m4 values (1104/1111) had been
+# taken from a frame IN TRANSITION (the motor still moving between
+# consecutive readings of waypoints_relativos_largo.csv, not staying
+# the same for more than one row), not from the truly settled value -- hence
+# the error reported earlier (5.8mm/~13mm). Verified against the real plateaus
+# of the CSV (m4 constant for >=10 consecutive rows, motor stopped): the
+# settled value closest to each target gives ~1.45mm in both cases.
 USAR_SEMILLAS_FIJAS = True
 SEED_COMMANDS_TICKS = {
-    (-153.0, 226.0, 81.0): [1876, 1406, 2130, 1079],  # asentado: 1.45mm de error
-    (-63.6, 278.9, -34.0): [1601, 1682, 1481, 1080],  # asentado: 1.45mm de error
-    (-22.35, 224.55, -179.51): [1599, 2229, 842, 1076],  # asentado: 0.07mm de error
-    # (-40.57, 310.78, 2.48) NO tiene meseta genuina cerca en waypoints_relativos_largo.csv
-    # (la lectura "exacta" que parecía matchear era un frame en transición, no un
-    # punto realmente asentado) -- no se agrega semilla para ese, ya llegaba 2/3
-    # con el CEM normal antes de aflojar la barrera de límites.
+    (-153.0, 226.0, 81.0): [1876, 1406, 2130, 1079],  # settled: 1.45mm error
+    (-63.6, 278.9, -34.0): [1601, 1682, 1481, 1080],  # settled: 1.45mm error
+    (-22.35, 224.55, -179.51): [1599, 2229, 842, 1076],  # settled: 0.07mm error
+    # (-40.57, 310.78, 2.48) has NO genuine plateau nearby in waypoints_relativos_largo.csv
+    # (the "exact" reading that seemed to match was a frame in transition, not a
+    # truly settled point) -- no seed is added for that one, it already reached 2/3
+    # with the normal CEM before loosening the limits barrier.
 }
 SEED_TARGET_TOLERANCIA_MM = 1.0
 SEED_TOLERANCIA_TICKS = 15.0
@@ -276,8 +276,8 @@ SEED_TIMEOUT_S = 15.0
 
 
 def _buscar_semilla_para_target(target_wp, tolerancia_mm=SEED_TARGET_TOLERANCIA_MM):
-  """Devuelve el comando semilla configurado para este target (por posición
-  cartesiana, con tolerancia), o None si no hay ninguno definido para él."""
+  """Returns the seed command configured for this target (by cartesian
+  position, with tolerance), or None if none is defined for it."""
   target_np = np.asarray(target_wp, dtype=np.float64)
   for target_key, ticks in SEED_COMMANDS_TICKS.items():
     if np.linalg.norm(np.asarray(target_key, dtype=np.float64) - target_np) <= tolerancia_mm:
@@ -285,19 +285,19 @@ def _buscar_semilla_para_target(target_wp, tolerancia_mm=SEED_TARGET_TOLERANCIA_
   return None
 
 
-# 🧭 Waypoints intermedios: si el salto directo al próximo waypoint es
-# grande, el CEM/Jacobiano (métodos LOCALES) pueden quedar atrapados en la
-# rama de redundancia cinemática más cercana a donde está el robot, en vez
-# de la rama correcta (confirmado en producción: para un target específico,
-# tanto el CEM como el Jacobiano insistían en empujar un motor a su límite,
-# mientras la combinación real que lo alcanzaba en los datos de
-# entrenamiento estaba del otro lado de home). Trocear el salto en pasos
-# chicos preserva la continuidad en el espacio de actuadores entre ciclos
-# consecutivos (la misma técnica usada en IK Jacobiana para sistemas
-# redundantes) sin necesitar una tabla de referencia. No hace falta que el
-# camino intermedio imite la forma real (arco) del robot -- solo que cada
-# sub-objetivo esté cerca del anterior; el robot curva como le resulte
-# natural para alcanzar cada uno.
+# 🧭 Intermediate waypoints: if the direct jump to the next waypoint is
+# large, the CEM/Jacobian (LOCAL methods) may get trapped in the
+# kinematic redundancy branch closest to where the robot is, instead
+# of the correct branch (confirmed in production: for a specific target,
+# both the CEM and the Jacobian insisted on pushing a motor to its limit,
+# while the real combination that reached it in the training data
+# was on the other side of home). Chopping the jump into small steps
+# preserves continuity in actuator space between consecutive cycles
+# (the same technique used in Jacobian IK for redundant systems)
+# without needing a reference table. The intermediate path does not need
+# to imitate the real shape (arc) of the robot -- only that each
+# sub-goal be close to the previous one; the robot curves however is
+# natural for it to reach each one.
 DISTANCIA_MAX_SALTO_MM = 60.0
 PASO_SUBOBJETIVO_MM = 50.0
 TOLERANCIA_SUBOBJETIVO_MM = 25.0
@@ -305,9 +305,9 @@ TOLERANCIA_SUBOBJETIVO_MM = 25.0
 
 def _generar_subobjetivos(pos_actual_mm, target_mm, paso_mm=PASO_SUBOBJETIVO_MM,
                            salto_min_mm=DISTANCIA_MAX_SALTO_MM):
-  """Puntos intermedios en línea recta entre pos_actual_mm y target_mm, sin
-  incluir el punto final (ese sigue tratándose como el waypoint real, con
-  su tolerancia/dwell normales). Lista vacía si el salto no es grande."""
+  """Intermediate points in a straight line between pos_actual_mm and target_mm, not
+  including the final point (that one is still treated as the real waypoint, with
+  its normal tolerance/dwell). Empty list if the jump is not large."""
   pos_actual_mm = np.asarray(pos_actual_mm, dtype=np.float32)
   target_mm = np.asarray(target_mm, dtype=np.float32)
   dist = float(np.linalg.norm(target_mm - pos_actual_mm))
@@ -321,7 +321,7 @@ def _generar_subobjetivos(pos_actual_mm, target_mm, paso_mm=PASO_SUBOBJETIVO_MM,
 
 
 # ==============================================================================
-# 4. FILTRADO CAUSAL EN TIEMPO REAL
+# 4. REAL-TIME CAUSAL FILTERING
 # ==============================================================================
 class RealTimeCausalFilter:
 
@@ -331,20 +331,20 @@ class RealTimeCausalFilter:
     self.b, self.a = butter(order, normal_cutoff, btype='low', analog=False)
     self.num_channels = num_channels
     zi_single = lfilter_zi(self.b, self.a)
-    self.zi = np.tile(zi_single, (num_channels, 1)).T  # Forma: (order, num_channels)
+    self.zi = np.tile(zi_single, (num_channels, 1)).T  # Shape: (order, num_channels)
 
   def filter(self, x):
     x = np.asarray(x, dtype=np.float64).flatten()
     y = np.zeros(self.num_channels, dtype=np.float64)
     for i in range(self.num_channels):
       out, zf = lfilter(self.b, self.a, [x[i]], zi=self.zi[:, i])
-      y[i] = out[0]  # Extraer escalar explícitamente
+      y[i] = out[0]  # Explicitly extract scalar
       self.zi[:, i] = zf
     return y
 
 
 # ==============================================================================
-# 5. ESCALADOR Y NORMALIZADOR DINÁMICO
+# 5. DYNAMIC SCALER AND NORMALIZER
 # ==============================================================================
 class InputScaler:
 
@@ -369,7 +369,7 @@ class InputScaler:
 
 
 # ==============================================================================
-# 6. SISTEMA PRINCIPAL DE CONTROL CLOSED-LOOP MPC
+# 6. MAIN CLOSED-LOOP MPC CONTROL SYSTEM
 # ==============================================================================
 class SoftRobotMPCSystem:
 
@@ -404,79 +404,79 @@ class SoftRobotMPCSystem:
     self.hardware_lock = threading.Lock()
     self.t_prev = None
 
-    # 🎯 Action Hold (control decimado): el sensado corre a 60 Hz pero el MPC
-    # solo recalcula/envía comando cada N ciclos, dando tiempo al cable de
-    # tensarse y deformar la silicona antes de evaluar el siguiente paso.
+    # 🎯 Action Hold (decimated control): sensing runs at 60 Hz but the MPC
+    # only recomputes/sends a command every N cycles, giving the cable time to
+    # tense and deform the silicone before evaluating the next step.
     self.action_hold_cycles = max(1, int(action_hold_cycles))
-    # Umbral mínimo de salto (ticks): si |comando - último enviado| es menor,
-    # el movimiento se absorbe por la holgura del cable y no se reenvía.
+    # Minimum jump threshold (ticks): if |command - last sent| is smaller,
+    # the movement is absorbed by the cable slack and is not resent.
     self.delta_min_ticks = delta_min_ticks
     self.ultimo_comando_ticks = None
 
-    # 🔺 Acumulador anti-deadband (efecto integrador) por motor: si el CEM
-    # pide consistentemente una corrección más chica que delta_min_ticks,
-    # sin esto se pierde CADA ciclo (comparación sin memoria) y el sistema
-    # queda estancado sin poder afinar el último tramo (visto en producción:
-    # no lograba bajar de ~15mm a ~8mm). Se acumula una fracción de la
-    # corrección pedida cada ciclo hasta superar el umbral, y ahí se libera
-    # de una vez. Anti-windup: tope al acumulador (ver _reset_hist_acum) y
-    # se resetea al cambiar de waypoint.
+    # 🔺 Anti-deadband accumulator (integrator effect) per motor: if the CEM
+    # consistently asks for a correction smaller than delta_min_ticks,
+    # without this it is lost EVERY cycle (memoryless comparison) and the system
+    # gets stuck unable to refine the last stretch (seen in production:
+    # it could not get below ~15mm down to ~8mm). A fraction of the requested
+    # correction is accumulated each cycle until it exceeds the threshold, and then it is
+    # released all at once. Anti-windup: cap on the accumulator (see _reset_hist_acum) and
+    # it is reset when the waypoint changes.
     self.acumulador_hist_ticks = [0.0, 0.0, 0.0, 0.0]
     self.ganancia_integral_hist = 0.3
     self._ultimo_target_wp_hist = None
 
-    # 🌊 Suavizado exponencial (LERP) del comando adoptado, en espacio escalado
-    # [-1,1]: u_enviado(t) = alpha*u_opt + (1-alpha)*u_enviado(t-1). DESACTIVADO
-    # por defecto (alpha=1.0 -> u_enviado=u_opt sin mezclar) porque CEM ya
-    # promedia/suaviza internamente (media del élite + std con memoria); EMA
-    # apilado ENCIMA de eso reduce el cambio a algo tan chico que la histéresis
-    # (delta_min_ticks) lo descarta siempre -> el comando se congela por
-    # completo (visto en producción: Comando y Posición motor nunca cambian).
+    # 🌊 Exponential smoothing (LERP) of the adopted command, in scaled space
+    # [-1,1]: u_sent(t) = alpha*u_opt + (1-alpha)*u_sent(t-1). DISABLED
+    # by default (alpha=1.0 -> u_sent=u_opt with no mixing) because the CEM already
+    # averages/smooths internally (elite mean + std with memory); EMA
+    # stacked ON TOP of that reduces the change to something so small that the hysteresis
+    # (delta_min_ticks) always discards it -> the command freezes
+    # completely (seen in production: Command and Motor Position never change).
     self.ema_alpha = float(ema_alpha)
 
-    # 🔒 Setpoint Lock (Waypoint Tracking / umbral de avance): no se adopta un
-    # nuevo target del optimizador hasta que la posición real haya recorrido
-    # `setpoint_lock_pct` (p.ej. 0.8 = 80%) de la distancia entre el origen y
-    # el target vigente. DESACTIVADO por defecto (0.0): si el robot no llega
-    # a cubrir ese % (fricción/holgura/torque insuficiente), el sistema deja
-    # de reenviar comandos y queda bloqueado para siempre (nada vuelve a
-    # actualizar el origen/target salvo una adopción exitosa). Con EMA y la
-    # memoria de `std` del CEM ya no debería hacer falta: ambos ya evitan que
-    # el optimizador salte bruscamente de un target a otro.
+    # 🔒 Setpoint Lock (Waypoint Tracking / progress threshold): a new optimizer
+    # target is not adopted until the real position has covered
+    # `setpoint_lock_pct` (e.g. 0.8 = 80%) of the distance between the origin and
+    # the current target. DISABLED by default (0.0): if the robot fails
+    # to cover that % (friction/slack/insufficient torque), the system stops
+    # resending commands and stays blocked forever (nothing updates the
+    # origin/target again except a successful adoption). With EMA and the CEM's
+    # `std` memory it should no longer be needed: both already prevent the
+    # optimizer from jumping abruptly from one target to another.
     self.setpoint_lock_pct = float(setpoint_lock_pct)
     self.target_lock_origen_ticks = None
 
     self.num_samples = int(num_samples)
-    self._home_ticks_cache = None  # cacheado en la 1ra llamada (home_m es fijo por corrida)
+    self._home_ticks_cache = None  # cached on the 1st call (home_m is fixed per run)
 
-    # Handles de hardware (se crean en _setup_hardware)
+    # Hardware handles (created in _setup_hardware)
     self.controlador_dynamixel = None
     self.streaming_client = None
     self.controlador_phidget = None
     self._csv_logger = None
 
-    # 🧵 Hilo de sensado Dynamixel en background (igual patrón que main.py):
-    # lee el bus serial en su propio loop pausado a 60 Hz; el lazo de control
-    # nunca bloquea en el read, solo lee las variables ya cacheadas abajo.
+    # 🧵 Background Dynamixel sensing thread (same pattern as main.py):
+    # reads the serial bus in its own loop paced at 60 Hz; the control loop
+    # never blocks on the read, it only reads the variables already cached below.
     self._sensor_thread_running = False
     self._sensor_thread_obj = None
 
-    # 🚀 Estado compartido de los cuerpos rígidos OptiTrack (actualizado async)
+    # 🚀 Shared state of the OptiTrack rigid bodies (updated async)
     self.p_base = [0.0, 0.0, 0.0]
     self.q_base = [0.0, 0.0, 0.0, 1.0]
     self.p_efector = [0.0, 0.0, 0.0]
     self.q_efector = [0.0, 0.0, 0.0, 1.0]
-    # Marca de tiempo del último frame recibido por cuerpo rígido (None = nunca).
-    # Sirve para distinguir "OptiTrack en el origen real" de "OptiTrack nunca conectó".
+    # Timestamp of the last frame received per rigid body (None = never).
+    # Used to distinguish "OptiTrack at the true origin" from "OptiTrack never connected".
     self._t_ultimo_frame_base = None
     self._t_ultimo_frame_efector = None
 
-    # Última lectura válida de motores (fallback ante fallos de comunicación)
+    # Last valid motor reading (fallback on communication failures)
     self.ultimas_posiciones_validas = [cfg.HOME_POSITION[mid] for mid in cfg.MOTOR_IDS]
     self.ultimos_torques_validos = [0] * len(cfg.MOTOR_IDS)
     self.ultimas_fuerzas_validas = [0.0] * 4
 
-    # 1. Cargar Metadatos JSON
+    # 1. Load JSON Metadata
     print(f'📄 Cargando metadatos predictor: {metadata_pred_path}')
     with open(metadata_pred_path, 'r') as f:
       self.meta_pred = json.load(f)
@@ -495,7 +495,7 @@ class SoftRobotMPCSystem:
         f' t_out={self.t_out} pasos'
     )
 
-    # 2. Cargar Modelos PyTorch
+    # 2. Load PyTorch Models
     print(f'🧠 Cargando predictor PINN desde: {predictor_path}')
     self.predictor, _ = _cargar_modelo_pytorch(
         predictor_path, self.device, tipo_modelo='predictor'
@@ -510,17 +510,17 @@ class SoftRobotMPCSystem:
     if hasattr(self.observer, 'eval'):
       self.observer.eval()
 
-    # El observador puede haberse entrenado con una ventana T_IN distinta a
-    # la del predictor (checkpoint['window_size']); si el checkpoint no la
-    # declara (formatos viejos), caer al valor con el que se sabe que se
-    # entrenó el modelo desplegado actualmente (90).
+    # The observer may have been trained with a T_IN window different from
+    # the predictor's (checkpoint['window_size']); if the checkpoint does not
+    # declare it (old formats), fall back to the value with which the currently
+    # deployed model is known to have been trained (90).
     if window_size_obs is None:
       window_size_obs = self.meta_obs.get('window_size', 90)
     self.t_in_obs = int(window_size_obs)
     print(f'⚙️ Ventana del observador: t_in_obs={self.t_in_obs} pasos')
 
-    # Parámetros para desescalar la salida del observador (rel_x, rel_y, rel_z)
-    # cuando no hay OptiTrack disponible (--no-optitrack)
+    # Parameters to de-scale the observer output (rel_x, rel_y, rel_z)
+    # when OptiTrack is not available (--no-optitrack)
     y_trans_obs = self.meta_obs.get('Y_transformer')
     if y_trans_obs:
       self.min_y_obs = torch.tensor(
@@ -535,7 +535,7 @@ class SoftRobotMPCSystem:
       self.min_y_obs = None
       self.max_y_obs = None
 
-    # 3. Inicializar Normalizador y MPC
+    # 3. Initialize Normalizer and MPC
     self.scaler = InputScaler(self.meta_pred, device=self.device)
     self.mpc = NeuralMPCController(
         model_predictor=self.predictor,
@@ -549,7 +549,7 @@ class SoftRobotMPCSystem:
         k_iters_jacobiano=k_iters_jacobiano,
     )
 
-    # 4. Filtros Causales
+    # 4. Causal Filters
     self.filter_pos = RealTimeCausalFilter(
         cutoff_hz=6.0, fs_hz=60.0, num_channels=3
     )
@@ -560,9 +560,9 @@ class SoftRobotMPCSystem:
         cutoff_hz=3.5, fs_hz=60.0, num_channels=4
     )
 
-    # 5. Búfer Dinámico -- dimensionado para el más largo de los dos modelos
-    # (predictor: self.t_in, observador: self.t_in_obs), cada uno consume
-    # solo el tramo final que necesita (ver _estimar_p_efector_observador y
+    # 5. Dynamic Buffer -- sized for the longer of the two models
+    # (predictor: self.t_in, observer: self.t_in_obs), each one consumes
+    # only the final stretch it needs (see _estimar_p_efector_observador and
     # run_control_loop).
     self._buffer_len = max(self.t_in, self.t_in_obs)
     self.buffer = deque(maxlen=self._buffer_len)
@@ -586,21 +586,21 @@ class SoftRobotMPCSystem:
     tension_m,
     meta_m,
     home_m,
-    t_actual=None,  # Timestamp opcional
+    t_actual=None,  # Optional timestamp
     filtrar_posicion=True,
   ):
-    # 1. Cálculo dinámico de delta_t (60 Hz por defecto en el 1er paso)
+    # 1. Dynamic computation of delta_t (60 Hz by default on the 1st step)
     if t_actual is None:
         t_actual = time.perf_counter()
 
     if getattr(self, 't_prev', None) is None:
-        delta_t = 1.0 / 60.0  # ~0.01667 segundos
+        delta_t = 1.0 / 60.0  # ~0.01667 seconds
     else:
         delta_t = t_actual - self.t_prev
 
     self.t_prev = t_actual
 
-    # 2. Cinemática relativa y Cuaterniones
+    # 2. Relative kinematics and Quaternions
     r_b = R.from_quat(q_base)
     r_e = R.from_quat(q_efector)
 
@@ -608,13 +608,13 @@ class SoftRobotMPCSystem:
     r_rel = r_b.inv() * r_e
     q_rel = r_rel.as_quat()
 
-    # 3. Filtrado Causal
-    # La posición SOLO se filtra (Butterworth 6 Hz) cuando la fuente es una
-    # lectura cruda con jitter (OptiTrack real o el ruido sintético del modo
-    # simulate). Cuando la fuente es la salida del observador LSTM
-    # (--no-optitrack), esa señal YA fue entrenada contra targets de OptiTrack
-    # suavizados a 6 Hz — filtrarla de nuevo sería doble filtrado y metería
-    # retardo de fase innecesario en el lazo de control.
+    # 3. Causal Filtering
+    # The position is ONLY filtered (6 Hz Butterworth) when the source is a
+    # raw reading with jitter (real OptiTrack or the synthetic noise of the
+    # simulate mode). When the source is the output of the LSTM observer
+    # (--no-optitrack), that signal WAS ALREADY trained against OptiTrack targets
+    # smoothed at 6 Hz — filtering it again would be double filtering and would add
+    # unnecessary phase delay in the control loop.
     if filtrar_posicion:
       pos_filt = self.filter_pos.filter(p_rel)
     else:
@@ -622,7 +622,7 @@ class SoftRobotMPCSystem:
     torques_filt = self.filter_torques.filter(couple_m)
     tensiones_filt = self.filter_tensions.filter(tension_m)
 
-    # 4. Construir diccionario (Añadiendo 'delta_t')
+    # 4. Build dictionary (Adding 'delta_t')
     dict_data = {
         'rel_x': pos_filt[0],
         'rel_y': pos_filt[1],
@@ -631,7 +631,7 @@ class SoftRobotMPCSystem:
         'rel_qy': q_rel[1],
         'rel_qz': q_rel[2],
         'rel_qw': q_rel[3],
-        'delta_t': delta_t,  # <-- ¡Clave que solicitaba el escalador!
+        'delta_t': delta_t,  # <-- Key requested by the scaler!
     }
 
     for i in range(1, 5):
@@ -643,7 +643,7 @@ class SoftRobotMPCSystem:
     return dict_data, pos_filt
 
   def _on_rigid_body_frame(self, new_id, position, rotation):
-    """PRODUCTOR: recibe frames asíncronos de OptiTrack (base=1, efector=2)."""
+    """PRODUCER: receives asynchronous OptiTrack frames (base=1, effector=2)."""
     if new_id == 1:
       self.p_base = position
       self.q_base = rotation
@@ -654,11 +654,11 @@ class SoftRobotMPCSystem:
       self._t_ultimo_frame_efector = time.time()
 
   def _optitrack_pose_relativa_mm(self, max_age=0.5):
-    """Posición relativa (efector respecto a base) medida por OptiTrack, en mm.
+    """Relative position (effector with respect to base) measured by OptiTrack, in mm.
 
-    Devuelve None si nunca se recibió un frame de ambos cuerpos rígidos o si
-    la última lectura es más vieja que `max_age` segundos (Motive caído/no
-    transmitiendo), para no confundir "sin dato" con un [0,0,0] real.
+    Returns None if a frame from both rigid bodies was never received or if
+    the last reading is older than `max_age` seconds (Motive down/not
+    transmitting), so as not to confuse "no data" with a real [0,0,0].
     """
     if self._t_ultimo_frame_base is None or self._t_ultimo_frame_efector is None:
       return None
@@ -671,10 +671,10 @@ class SoftRobotMPCSystem:
 
   @torch.inference_mode()
   def _estimar_p_efector_observador(self):
-    """Estima la posición relativa del efector (m) con el observador LSTM.
+    """Estimates the relative position of the effector (m) with the LSTM observer.
 
-    Se usa cuando --no-optitrack está activo: cierra el lazo con la
-    predicción del observador en lugar de la medición real de OptiTrack.
+    Used when --no-optitrack is active: closes the loop with the
+    observer's prediction instead of the real OptiTrack measurement.
     """
     x_hist_tensor = torch.stack(list(self.buffer)[-self.t_in_obs:]).unsqueeze(0)
     pred = self.observer(x_hist_tensor).squeeze(0)
@@ -685,7 +685,7 @@ class SoftRobotMPCSystem:
     return pos_m.cpu().numpy()
 
   def _home_ticks_tensor(self, home_m):
-    """Tensor [4] de home en ticks, cacheado (home_m es fijo durante la corrida)."""
+    """Home [4] tensor in ticks, cached (home_m is fixed during the run)."""
     if self._home_ticks_cache is None:
       self._home_ticks_cache = torch.tensor(
           [home_m[f'm{i}'] for i in range(1, 5)], device=self.device, dtype=torch.float32
@@ -693,20 +693,20 @@ class SoftRobotMPCSystem:
     return self._home_ticks_cache
 
   def _ticks_absolutos_desde_escalado(self, u_scaled_tensor, home_m):
-    """Convierte el vector de control normalizado [-1, 1] a posiciones
+    """Converts the normalized control vector [-1, 1] to
 
-    absolutas de motor (ticks), usando los rangos por motor del generador
-    de candidatos y la posición HOME de referencia.
+    absolute motor positions (ticks), using the per-motor ranges of the candidate
+    generator and the reference HOME position.
     """
     ranges = self.mpc.candidate_generator.ranges
     return self._home_ticks_tensor(home_m) + u_scaled_tensor * (ranges / 2.0)
 
   def _escalado_desde_ticks_absolutos(self, ticks, home_m):
-    """Inversa de `_ticks_absolutos_desde_escalado`: de ticks absolutos de
+    """Inverse of `_ticks_absolutos_desde_escalado`: from absolute ticks of
 
-    motor a vector de control normalizado [-1, 1]. Se usa para recalcular
-    `u_actual_scaled` a partir de lo que REALMENTE se comandó al motor
-    (después de aplicar el umbral mínimo de salto), no lo que sugirió el MPC.
+    motor to normalized control vector [-1, 1]. Used to recompute
+    `u_actual_scaled` from what was ACTUALLY commanded to the motor
+    (after applying the minimum jump threshold), not what the MPC suggested.
     """
     ranges = self.mpc.candidate_generator.ranges
     if not torch.is_tensor(ticks):
@@ -714,12 +714,12 @@ class SoftRobotMPCSystem:
     return torch.clamp((ticks - self._home_ticks_tensor(home_m)) / (ranges / 2.0), -1.0, 1.0)
 
   def _sensor_thread_loop(self, freq_hz=60.0):
-    """Hilo dedicado: lee posición+carga de Dynamixel en su propio loop
+    """Dedicated thread: reads Dynamixel position+load in its own loop
 
-    pausado a `freq_hz`, actualizando `self.ultimas_posiciones_validas` /
-    `self.ultimos_torques_validos`. El lazo de control principal NUNCA
-    bloquea en este read -- solo lee esas variables ya cacheadas. Mismo
-    patrón que `data_sampler_thread` en main.py.
+    paced at `freq_hz`, updating `self.ultimas_posiciones_validas` /
+    `self.ultimos_torques_validos`. The main control loop NEVER
+    blocks on this read -- it only reads those already cached variables. Same
+    pattern as `data_sampler_thread` in main.py.
     """
     intervalo = 1.0 / freq_hz
     ids = cfg.MOTOR_IDS
@@ -734,9 +734,9 @@ class SoftRobotMPCSystem:
               self.controlador_dynamixel.sync_get_present_position_and_load(ids)
           )
           t_read_ms = (time.perf_counter() - t_read_start) * 1000.0
-        # Diagnóstico: aislar si el hueco es esperar el lock (lo tiene el
-        # hilo principal mandando un move()) o la lectura serial en sí
-        # (hipo de comunicación real con el bus Dynamixel).
+        # Diagnostic: isolate whether the gap is waiting for the lock (held by the
+        # main thread sending a move()) or the serial read itself
+        # (a real communication hiccup with the Dynamixel bus).
         if t_esperando_lock_ms > 200.0 or t_read_ms > 200.0:
           print(f'🐢 [hilo sensor] esperó lock={t_esperando_lock_ms:.0f}ms'
                 f' + lectura Dynamixel={t_read_ms:.0f}ms (anormal)')
@@ -752,7 +752,7 @@ class SoftRobotMPCSystem:
         time.sleep(tiempo_espera)
 
   def _setup_hardware(self):
-    """Inicializa motores Dynamixel, OptiTrack y celdas de carga (Phidget)."""
+    """Initializes Dynamixel motors, OptiTrack and load cells (Phidget)."""
     self.controlador_dynamixel = create_controller(
         simulate=self.simulate, port=self.port, baudrate=self.baud
     )
@@ -774,7 +774,7 @@ class SoftRobotMPCSystem:
       )
     print(f'✓ Motores enviados a HOME_POSITION={[cfg.HOME_POSITION[mid] for mid in ids]}')
 
-    # 🧵 Iniciar el hilo de sensado Dynamixel en background (60 Hz propio).
+    # 🧵 Start the background Dynamixel sensing thread (its own 60 Hz).
     self._sensor_thread_running = True
     self._sensor_thread_obj = threading.Thread(
         target=self._sensor_thread_loop, args=(60.0,), daemon=True
@@ -792,11 +792,11 @@ class SoftRobotMPCSystem:
     else:
       self.controlador_phidget = None
 
-    # El streaming de OptiTrack se intenta SIEMPRE que haya hardware real,
-    # independientemente de si controla el lazo o no: --use-optitrack solo
-    # decide qué fuente CIERRA el lazo de control; si Motive no está
-    # transmitiendo, simplemente no llegan frames (sin error) y las columnas
-    # de comparación OptiTrack quedan vacías en el log/consola.
+    # OptiTrack streaming is ALWAYS attempted whenever there is real hardware,
+    # regardless of whether it controls the loop or not: --use-optitrack only
+    # decides which source CLOSES the control loop; if Motive is not
+    # transmitting, frames simply do not arrive (no error) and the OptiTrack
+    # comparison columns remain empty in the log/console.
     if NatNetClient is None:
       print('⚠️ NatNetClient no disponible; no habrá datos de OptiTrack (ni control ni comparación).')
     else:
@@ -812,9 +812,9 @@ class SoftRobotMPCSystem:
       print('ℹ️ --no-optitrack activo: la pose del efector para el CONTROL se estima con el observador LSTM.')
 
   def _shutdown_hardware(self):
-    """Cierra de forma segura motores, OptiTrack y Phidget (idempotente)."""
-    # Detener el hilo de sensado ANTES de tocar el puerto, para que no siga
-    # intentando leer mientras (o después de) se cierra/deshabilita el torque.
+    """Safely shuts down motors, OptiTrack and Phidget (idempotent)."""
+    # Stop the sensing thread BEFORE touching the port, so that it does not keep
+    # trying to read while (or after) the torque is closed/disabled.
     if self._sensor_thread_running:
       self._sensor_thread_running = False
       if self._sensor_thread_obj is not None:
@@ -859,19 +859,19 @@ class SoftRobotMPCSystem:
         pass
 
   def _configurar_hardware_inicial(self):
-    """Setup de hardware + precalentamiento GPU, UNA SOLA VEZ por corrida
-    (no por intento/waypoint) -- extraído de run_control_loop para poder
-    reusarlo también en run_experimento_repeticiones sin reconectar
-    OptiTrack/reiniciar el hilo de sensado en cada repetición."""
+    """Hardware setup + GPU warm-up, ONLY ONCE per run
+    (not per attempt/waypoint) -- extracted from run_control_loop so that it can
+    also be reused in run_experimento_repeticiones without reconnecting
+    OptiTrack/restarting the sensing thread on each repetition."""
     self._setup_hardware()
 
-    # 🔥 Precalentamiento: la primera inferencia en GPU paga un costo único
-    # (init de contexto CUDA, autotuning de cuDNN para la LSTM, etc.) que
-    # puede tardar decenas de ms -- si eso pasa DENTRO del lazo cronometrado
-    # se ve como un pico gigante en el primer/segundo ciclo (visto en
-    # producción: 89ms y 70ms, cayendo a ~5-8ms desde el 3er ciclo en
-    # adelante). Se paga acá, antes de arrancar a medir, con una llamada
-    # descartable que ejercita el mismo código real (CEM completo).
+    # 🔥 Warm-up: the first GPU inference pays a one-time cost
+    # (CUDA context init, cuDNN autotuning for the LSTM, etc.) that
+    # can take tens of ms -- if that happens INSIDE the timed loop
+    # it shows up as a giant spike in the first/second cycle (seen in
+    # production: 89ms and 70ms, dropping to ~5-8ms from the 3rd cycle
+    # onwards). It is paid here, before starting to measure, with a
+    # throwaway call that exercises the same real code (full CEM).
     try:
       dummy_hist = torch.stack(list(self.buffer)[-self.t_in:]).unsqueeze(0)
       dummy_y_ref = torch.zeros(self.t_out, 3, device=self.device)
@@ -887,8 +887,8 @@ class SoftRobotMPCSystem:
     except Exception as e:
       print(f'⚠️ No se pudo precalentar los modelos: {e}')
 
-    # ⏳ Esperar el primer frame válido de OptiTrack antes de precargar el
-    # búfer (si no, la precarga arrancaría con lecturas viejas/cero).
+    # ⏳ Wait for the first valid OptiTrack frame before preloading the
+    # buffer (otherwise the preload would start with stale/zero readings).
     if not self.simulate and self.use_optitrack:
       print('⏳ Esperando primer frame válido de OptiTrack (base + efector)...')
       t_espera_opti = time.perf_counter()
@@ -899,18 +899,18 @@ class SoftRobotMPCSystem:
           break
 
   def _precargar_buffer_en_posicion(self, home_m, waypoint_referencia_mm, u_actual_scaled, freq_hz=60.0):
-    """Refresca self.buffer con ciclos de sensor REALES (no simulados/cero).
+    """Refreshes self.buffer with REAL sensor cycles (not simulated/zero).
 
-    El búfer arranca relleno con ceros (ver __init__), y la LSTM del
-    observador nunca vio ese tipo de entrada en entrenamiento -- su salida
-    ahí es basura sin acotar (la capa final no tiene activación), que al
-    desescalar puede dispararse a cientos de mm (visto en producción:
-    pos_ctrl > 900mm en los primeros ciclos). Se llama una vez al arrancar
-    la corrida, y de nuevo después de cada retorno a Home en
-    run_experimento_repeticiones (para que el historial de la LSTM refleje
-    la posición real actual, no la del intento anterior).
+    The buffer starts filled with zeros (see __init__), and the observer's LSTM
+    never saw that kind of input in training -- its output there is
+    unbounded garbage (the final layer has no activation), which when de-scaling
+    can shoot up to hundreds of mm (seen in production:
+    pos_ctrl > 900mm in the first cycles). It is called once at the start of
+    the run, and again after each return to Home in
+    run_experimento_repeticiones (so that the LSTM history reflects
+    the current real position, not that of the previous attempt).
 
-    Devuelve pos_filt_m0 (última lectura de posición filtrada, en metros).
+    Returns pos_filt_m0 (last filtered position reading, in meters).
     """
     intervalo = 1.0 / freq_hz
     print(f'⏳ Precargando búfer con {self._buffer_len} ciclos reales de sensor '
@@ -934,10 +934,10 @@ class SoftRobotMPCSystem:
     return pos_filt_m0
 
   def _resetear_estado_mpc_para_nuevo_intento(self):
-    """Limpia toda la memoria entre ciclos de control (CEM + histéresis +
-    setpoint lock) al arrancar un intento nuevo, para que cada repetición
-    sea una prueba independiente (no "recuerde" la convergencia del intento
-    anterior al mismo punto) -- ver run_experimento_repeticiones."""
+    """Clears all memory between control cycles (CEM + hysteresis +
+    setpoint lock) when starting a new attempt, so that each repetition
+    is an independent test (does not "remember" the convergence of the previous
+    attempt to the same point) -- see run_experimento_repeticiones."""
     self.mpc.error_history.clear()
     self.mpc.stagnation_counter = 0
     self.mpc.cem_std_ticks = None
@@ -949,11 +949,11 @@ class SoftRobotMPCSystem:
     self._ultimo_target_wp_hist = None
 
   def _mover_a_home_bloqueante(self, home_m):
-    """Manda el robot a HOME_POSITION por comando directo de motor (sin
-    pasar por el CEM -- Home es la referencia de calibración, siempre
-    alcanzable en espacio de motor) y bloquea hasta que el driver confirma
-    llegada. Usado entre intentos de run_experimento_repeticiones para que
-    cada repetición arranque desde la MISMA posición física."""
+    """Sends the robot to HOME_POSITION by direct motor command (without
+    going through the CEM -- Home is the calibration reference, always
+    reachable in motor space) and blocks until the driver confirms
+    arrival. Used between attempts of run_experimento_repeticiones so that
+    each repetition starts from the SAME physical position."""
     ids = cfg.MOTOR_IDS
     home_positions = [home_m[f'm{mid}'] for mid in ids]
     if self.simulate:
@@ -964,11 +964,11 @@ class SoftRobotMPCSystem:
       )
 
   def _leer_ciclo_sensores(self, target_wp_ref, home_m):
-    """Lee un ciclo de sensores (pose del efector, motores, fuerzas).
+    """Reads one sensor cycle (effector pose, motors, forces).
 
-    Extraído del lazo principal para poder reusarse también durante la
-    precarga del búfer del observador (ver run_control_loop), antes de que
-    arranque el control "en serio".
+    Extracted from the main loop so that it can also be reused during the
+    preload of the observer buffer (see run_control_loop), before the
+    control starts "for real".
     """
     if self.simulate:
       p_b, q_b = [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]
@@ -977,30 +977,30 @@ class SoftRobotMPCSystem:
       real_m = [home_m[f'm{i}'] for i in range(1, 5)]
       couple_m = [0.0] * 4
       tension_m = [0.0] * 4
-      # Ruido sintético tipo cámara -> sí filtrar
+      # Camera-like synthetic noise -> do filter
       filtrar_pos_ctrl = True
     else:
-      # 1a. Pose del efector: OptiTrack real o estimación con el observador
+      # 1a. Effector pose: real OptiTrack or estimate with the observer
       if self.use_optitrack:
         p_b, q_b = self.p_base, self.q_base
         p_e, q_e = self.p_efector, self.q_efector
-        # Lectura cruda de cámara con jitter -> sí filtrar (Butterworth 6 Hz)
+        # Raw camera reading with jitter -> do filter (6 Hz Butterworth)
         filtrar_pos_ctrl = True
       else:
         p_b, q_b = [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]
         p_e = self._estimar_p_efector_observador()
         q_e = [0.0, 0.0, 0.0, 1.0]
-        # Salida del LSTM: entrenada contra OptiTrack ya suavizado a 6 Hz -> NO refiltrar
+        # LSTM output: trained against OptiTrack already smoothed at 6 Hz -> do NOT refilter
         filtrar_pos_ctrl = False
 
-      # 1b. Posición y torque reales de los motores Dynamixel: lectura
-      # INSTANTÁNEA de lo que ya actualizó el hilo de sensado en
-      # background (Perf: el lazo de control ya no bloquea esperando
-      # las 8 transacciones seriales cada ciclo).
+      # 1b. Real position and torque of the Dynamixel motors: INSTANT
+      # reading of what the background sensing thread has already updated
+      # (Perf: the control loop no longer blocks waiting for
+      # the 8 serial transactions every cycle).
       real_m = list(self.ultimas_posiciones_validas)
       couple_m = list(self.ultimos_torques_validos)
 
-      # 1c. Tensión de los tendones (celdas de carga Phidget)
+      # 1c. Tendon tension (Phidget load cells)
       if self.controlador_phidget is not None:
         try:
           t_phidget_start = time.perf_counter()
@@ -1020,15 +1020,15 @@ class SoftRobotMPCSystem:
       self, waypoints_mm, home_m, target_tolerance_mm=10.0, hold_time_s=0.4,
       dwell_reset_tolerance_mm=13.0,
   ):
-    # El umbral de "error chico" del CEM (que desactiva ensanche/multi-
-    # arranque por estancamiento) tiene que estar atado a la tolerancia de
-    # llegada REAL de esta corrida, no a la que tenía por defecto al
-    # construir self.mpc -- se actualiza acá para no depender del orden de
-    # construcción.
+    # The CEM "small error" threshold (which disables widening/multi-
+    # start on stagnation) has to be tied to the REAL arrival tolerance
+    # of this run, not to the one it had by default when
+    # self.mpc was built -- it is updated here so as not to depend on the order of
+    # construction.
     self.mpc.error_chico_umbral_mm = target_tolerance_mm * 2.0
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # Usar ruta absoluta para evitar errores con os.makedirs en Windows
+    # Use absolute path to avoid errors with os.makedirs on Windows
     log_path = os.path.abspath(f"mpc_experiment_{timestamp}.csv")
 
     self.logging_running = True
@@ -1037,8 +1037,8 @@ class SoftRobotMPCSystem:
     )
     log_thread.start()
 
-    # Fila de encabezado (la 1ra columna real del CSV es un timestamp UTC que
-    # antepone CSVLogger.log() automáticamente a cada fila, incluida ésta).
+    # Header row (the 1st real column of the CSV is a UTC timestamp that
+    # CSVLogger.log() automatically prepends to each row, this one included).
     self.log_queue.put([
         't_epoch', 'wp_idx',
         'target_x_mm', 'target_y_mm', 'target_z_mm',
@@ -1063,28 +1063,28 @@ class SoftRobotMPCSystem:
     intervalo = 1.0 / freq_hz
 
     ids = cfg.MOTOR_IDS
-    # Límites de seguridad del comando final: usan el MISMO rango con el que
-    # se entrenó (self.mpc.candidate_generator.homes/ranges, del JSON), NO
-    # cfg.MOTOR_HOME_RANGES/cfg.LIMITS (más chico, usado solo para la grilla
-    # de muestreo de otros scripts de recolección de datos). Así el MPC puede
-    # llegar a todo el rango que el modelo realmente aprendió a controlar.
+    # Safety limits of the final command: they use the SAME range with which it
+    # was trained (self.mpc.candidate_generator.homes/ranges, from the JSON), NOT
+    # cfg.MOTOR_HOME_RANGES/cfg.LIMITS (smaller, used only for the sampling grid
+    # of other data-collection scripts). This way the MPC can
+    # reach the whole range that the model actually learned to control.
     home_ticks_np = self.mpc.candidate_generator.homes.cpu().numpy()
     half_range_np = (self.mpc.candidate_generator.ranges / 2.0).cpu().numpy()
     limits_low = np.clip(home_ticks_np - half_range_np, 0, cfg.DXL_MAXIMUM_POSITION_VALUE)
     limits_high = np.clip(home_ticks_np + half_range_np, 0, cfg.DXL_MAXIMUM_POSITION_VALUE)
 
-    # 🎯 Estado del Action Hold: el sensado corre cada ciclo (60 Hz), pero el
-    # MPC solo recalcula/envía comando cada `action_hold_cycles` ciclos.
+    # 🎯 Action Hold state: sensing runs every cycle (60 Hz), but the
+    # MPC only recomputes/sends a command every `action_hold_cycles` cycles.
     control_counter = 0
     cost_val = 0.0
     t_calc_ms = 0.0
 
-    # ⏱️ Estado del "dwell": instante (perf_counter) en que se entró en
-    # tolerancia por primera vez para el waypoint actual. None = aún no llegó.
+    # ⏱️ "Dwell" state: instant (perf_counter) at which tolerance was first
+    # entered for the current waypoint. None = not reached yet.
     wp_reached_time = None
 
-    # Última estimación del observador calculada (para reusar en ciclos donde
-    # no se recalcula, ver Perf en el paso 1d más abajo).
+    # Last observer estimate computed (to reuse in cycles where
+    # it is not recomputed, see Perf in step 1d below).
     pos_obs_mm = np.zeros(3)
 
     print(f'📄 Guardando registros en: {log_path}')
@@ -1101,8 +1101,8 @@ class SoftRobotMPCSystem:
 
       wp_idx_sembrado = -1
       ultima_pos_conocida_mm = pos_filt_m0 * 1000.0
-      # Igual que en cada transición de waypoint: si el primer waypoint
-      # queda lejos de donde termina la precarga, trocear el salto también.
+      # Same as at each waypoint transition: if the first waypoint
+      # is far from where the preload ends, chop the jump too.
       cola_subobjetivos = _generar_subobjetivos(ultima_pos_conocida_mm, waypoints_mm[0])
       if cola_subobjetivos:
         print(f'🧭 Salto grande al WP 1: insertando {len(cola_subobjetivos)} '
@@ -1113,22 +1113,22 @@ class SoftRobotMPCSystem:
         en_subobjetivo = len(cola_subobjetivos) > 0
         target_wp = cola_subobjetivos[0] if en_subobjetivo else target_real_wp
 
-        # Reset del acumulador anti-deadband al cambiar de target: no
-        # arrastrar una corrección pendiente de OTRO waypoint.
+        # Reset the anti-deadband accumulator when changing target: do not
+        # carry over a pending correction from ANOTHER waypoint.
         if (
             self._ultimo_target_wp_hist is None
             or not np.allclose(target_wp, self._ultimo_target_wp_hist, atol=1e-6)
         ):
           self.acumulador_hist_ticks = [0.0, 0.0, 0.0, 0.0]
           self._ultimo_target_wp_hist = target_wp.copy()
-        # Las semillas fijas y el multi-arranque solo aplican al waypoint
-        # REAL, no a los sub-objetivos intermedios de paso.
+        # Fixed seeds and multi-start only apply to the REAL
+        # waypoint, not to the intermediate step sub-goals.
         seed_para_este_wp = None if en_subobjetivo else _buscar_semilla_para_target(target_real_wp)
 
-        # 🌱 Comando semilla (ver SEED_COMMANDS_TICKS): mandar un comando
-        # fijo conocido y esperar a que la posición real converja ahí ANTES
-        # de activar el predictor para este waypoint puntual. Se hace una
-        # sola vez por waypoint (wp_idx_sembrado evita repetirlo cada ciclo).
+        # 🌱 Seed command (see SEED_COMMANDS_TICKS): send a known
+        # fixed command and wait for the real position to converge there BEFORE
+        # activating the predictor for this particular waypoint. It is done
+        # only once per waypoint (wp_idx_sembrado avoids repeating it every cycle).
         if (
             USAR_SEMILLAS_FIJAS
             and not self.simulate
@@ -1158,10 +1158,10 @@ class SoftRobotMPCSystem:
             )
             self.buffer.append(self.scaler.scale(dict_featuresS))
 
-            # Registrar también los ciclos de precarga en el CSV (antes se
-            # dejaban afuera -- generaba un hueco temporal que plot_resultados.py
-            # dibujaba como una rampa recta engañosa entre el último punto de
-            # antes de la semilla y el primero de después).
+            # Also record the preload cycles in the CSV (before they
+            # were left out -- that produced a temporal gap that plot_resultados.py
+            # drew as a misleading straight ramp between the last point from
+            # before the seed and the first one after).
             pos_opti_mm_seed_log = self._optitrack_pose_relativa_mm()
             if pos_opti_mm_seed_log is None:
               pos_opti_mm_seed_log = np.full(3, np.nan)
@@ -1178,12 +1178,12 @@ class SoftRobotMPCSystem:
                 + u_seed_scaled_log.cpu().numpy().tolist()
                 + [float(t) for t in real_mS]
                 + [float(t) for t in seed_ticks]
-                + [float('nan')] * 4  # raw_opt_m1-4_ticks: no aplica (no hay CEM acá)
-                + [0, 0, 0, 0]  # bloqueado_hist_m1-4: no aplica
-                + [0, 0, 0, 0]  # en_limite_m1-4: no aplica
+                + [float('nan')] * 4  # raw_opt_m1-4_ticks: not applicable (no CEM here)
+                + [0, 0, 0, 0]  # bloqueado_hist_m1-4: not applicable
+                + [0, 0, 0, 0]  # en_limite_m1-4: not applicable
                 + [0]  # es_action_hold
-                + [float('nan')] * 3  # pred_tout_x/y/z_mm: no aplica
-                + [0.0, float('nan')]  # t_calc_ms, cost: no aplica
+                + [float('nan')] * 3  # pred_tout_x/y/z_mm: not applicable
+                + [0.0, float('nan')]  # t_calc_ms, cost: not applicable
             )
 
             diffs = [abs(r - s) for r, s in zip(real_mS, seed_ticks)]
@@ -1200,9 +1200,9 @@ class SoftRobotMPCSystem:
             if dt_ciclo_seed < intervalo:
               time.sleep(intervalo - dt_ciclo_seed)
 
-          # Error de la semilla contra el target, ANTES de que el predictor
-          # toque nada -- para saber si la combinación conocida-buena
-          # todavía alcanza el punto (deriva física) o no.
+          # Seed error against the target, BEFORE the predictor
+          # touches anything -- to know whether the known-good combination
+          # still reaches the point (physical drift) or not.
           pos_filt_mm_S = pos_filt_mS * 1000.0
           err_seed_mm = float(np.linalg.norm(pos_filt_mm_S - target_wp))
           pos_opti_mm_S = self._optitrack_pose_relativa_mm()
@@ -1220,7 +1220,7 @@ class SoftRobotMPCSystem:
           u_actual_scaled = self._escalado_desde_ticks_absolutos(seed_ticks, home_m)
           self.ultimo_comando_ticks = list(seed_ticks)
           wp_idx_sembrado = current_wp_idx
-          continue  # arrancar limpio el ciclo normal de control para este waypoint
+          continue  # start the normal control cycle clean for this waypoint
 
         t_start = time.perf_counter()
         control_counter += 1
@@ -1231,32 +1231,32 @@ class SoftRobotMPCSystem:
             .repeat(self.t_out, 1)
         )
 
-        # 1. Leer Sensores Crudos (Simulación / Hardware)
+        # 1. Read Raw Sensors (Simulation / Hardware)
         p_b, q_b, p_e, q_e, real_m, couple_m, tension_m, filtrar_pos_ctrl = (
             self._leer_ciclo_sensores(target_wp, home_m)
         )
 
-        # 1d. Estimación del observador LSTM, para comparar contra
-        # OptiTrack/objetivo en el log. Si ya se calculó arriba como p_e
-        # (--no-optitrack), se reutiliza (gratis, sin costo extra). Si es
-        # solo para comparación (--use-optitrack), Perf: se recalcula nada
-        # más al ritmo del Action Hold en vez de cada ciclo de sensado a
-        # 60 Hz — es una inferencia LSTM completa que no hace falta correr
-        # 4x más seguido de lo necesario. En simulate se recalcula siempre
-        # (irrelevante en costo, útil para pruebas de lógica).
+        # 1d. LSTM observer estimate, to compare against
+        # OptiTrack/target in the log. If it was already computed above as p_e
+        # (--no-optitrack), it is reused (free, no extra cost). If it is
+        # only for comparison (--use-optitrack), Perf: it is recomputed only
+        # at the Action Hold rate instead of every 60 Hz sensing cycle — it is
+        # a full LSTM inference that does not need to run 4x more often
+        # than necessary. In simulate it is always recomputed
+        # (irrelevant in cost, useful for logic tests).
         if not self.simulate and not self.use_optitrack:
           pos_obs_mm = np.asarray(p_e, dtype=np.float64) * 1000.0
         elif self.simulate or control_counter % self.action_hold_cycles == 0:
           pos_obs_mm = self._estimar_p_efector_observador() * 1000.0
-        # else: se reutiliza el pos_obs_mm calculado en un ciclo anterior
+        # else: the pos_obs_mm computed in a previous cycle is reused
 
-        # 1e. Pose real de OptiTrack para comparación (None si no hay datos
-        # frescos, p.ej. Motive no está transmitiendo).
+        # 1e. Real OptiTrack pose for comparison (None if there is no fresh
+        # data, e.g. Motive is not transmitting).
         pos_opti_mm = self._optitrack_pose_relativa_mm()
         if pos_opti_mm is None:
           pos_opti_mm = np.full(3, np.nan)
 
-        # 2. Transformación Cinemática Relativa y Filtrado Causal
+        # 2. Relative Kinematic Transformation and Causal Filtering
         meta_ticks_abs = self._ticks_absolutos_desde_escalado(u_actual_scaled, home_m)
         meta_m = meta_ticks_abs.cpu().numpy().tolist()
         dict_features, pos_filt_m = self._procesar_lecturas_cinematicas(
@@ -1272,39 +1272,39 @@ class SoftRobotMPCSystem:
             filtrar_posicion=filtrar_pos_ctrl,
         )
 
-        # 3. Normalizar Vector [17] y Guardar en Búfer
+        # 3. Normalize Vector [17] and Save in Buffer
         vec_scaled = self.scaler.scale(dict_features)
         self.buffer.append(vec_scaled)
         x_hist_tensor = torch.stack(list(self.buffer)[-self.t_in:]).unsqueeze(0)
 
-        # Posición REAL actual (Cartesiano, mm) percibida por OptiTrack/observador
-        # (la misma que se muestra como "Ctrl" en el log), para que el MPC calcule
-        # su error contra el target usando el sensor real, no una suposición interna.
+        # CURRENT REAL position (Cartesian, mm) perceived by OptiTrack/observer
+        # (the same one shown as "Ctrl" in the log), so that the MPC computes
+        # its error against the target using the real sensor, not an internal assumption.
         pos_filt_mm = pos_filt_m * 1000.0
         current_pos_mm = torch.tensor(pos_filt_mm, device=self.device, dtype=torch.float32)
         ultima_pos_conocida_mm = pos_filt_mm.copy()
 
-        # 4-5. Optimización MPC + envío de comando (Action Hold: solo cada
-        # `action_hold_cycles` ciclos se recalcula; en los ciclos intermedios
-        # se mantiene el último comando, dando tiempo al cable de tensarse y
-        # deformar la silicona).
+        # 4-5. MPC Optimization + command sending (Action Hold: only every
+        # `action_hold_cycles` cycles is it recomputed; in the intermediate cycles
+        # the last command is kept, giving the cable time to tense and
+        # deform the silicone).
         es_ciclo_action_hold = (control_counter % self.action_hold_cycles == 0)
-        # Diagnóstico por ciclo (para el CSV): sugerencia cruda del optimizador
-        # antes de clip/histéresis, y si la histéresis/el límite físico
-        # bloquearon la corrección de cada motor -- NaN/0 en los ciclos donde
-        # no se recalcula (no action-hold) o el setpoint lock no avanza.
+        # Per-cycle diagnostic (for the CSV): raw suggestion of the optimizer
+        # before clip/hysteresis, and whether the hysteresis/physical limit
+        # blocked the correction of each motor -- NaN/0 in the cycles where
+        # it is not recomputed (no action-hold) or the setpoint lock does not advance.
         raw_opt_ticks_row = [float('nan')] * 4
         bloqueado_hist_row = [0, 0, 0, 0]
         en_limite_row = [0, 0, 0, 0]
         pred_tout_mm_row = [float('nan')] * 3
-        # (Se probó congelar por completo el optimizador durante el dwell,
-        # pero eso resultó PEOR: el robot deriva solo mientras no se manda
-        # nada -- real, no artefacto -- y al reactivarse el buffer queda
-        # lleno de esa deriva "no comandada", el costo del modelo se dispara
-        # y corrige de un golpe violento en vez de suave. Mejor seguir
-        # corrigiendo la deriva chica en tiempo real; las otras defensas
-        # -persistencia direccional, sin ensanche con error chico, tope de
-        # salto- ya evitan el "baile" que motivó el freeze originalmente.)
+        # (Completely freezing the optimizer during the dwell was tried,
+        # but it turned out WORSE: the robot drifts on its own while nothing is
+        # sent -- real, not an artifact -- and when reactivated the buffer ends up
+        # full of that "uncommanded" drift, the model cost shoots up
+        # and it corrects all at once violently instead of smoothly. Better to keep
+        # correcting the small drift in real time; the other defenses
+        # -directional persistence, no widening with small error, jump
+        # cap- already prevent the "dance" that originally motivated the freeze.)
         if es_ciclo_action_hold:
           u_opt, cost_val, t_calc_ms, top_u_scaled, top_costs, y_pred_final_mm = self.mpc.optimize(
               x_hist_tensor=x_hist_tensor,
@@ -1312,13 +1312,13 @@ class SoftRobotMPCSystem:
               u_current_scaled=u_actual_scaled,
               current_pos_mm=current_pos_mm,
           )
-          # Creencia del predictor sobre dónde va a terminar (paso t_out,
-          # el que más pesa w_terminal) bajo el comando elegido -- para
-          # comparar en el CSV contra lo que realmente mide el sensor unos
-          # ciclos después (ver columnas pred_tout_*_mm).
+          # Predictor's belief about where it will end up (step t_out,
+          # the one that w_terminal weighs most) under the chosen command -- to
+          # compare in the CSV against what the sensor actually measures a few
+          # cycles later (see pred_tout_*_mm columns).
           pred_tout_mm_row = y_pred_final_mm[-1].cpu().numpy().tolist()
 
-          # Top-K candidatos de la pasada de refinamiento, para diagnóstico
+          # Top-K candidates of the refinement pass, for diagnostics
           top_ticks = self._ticks_absolutos_desde_escalado(top_u_scaled, home_m).cpu().numpy()
           top_costs_np = top_costs.cpu().numpy()
           top_str = ' | '.join(
@@ -1328,12 +1328,12 @@ class SoftRobotMPCSystem:
           print(f'🏆 Top-{len(top_costs_np)} candidatos: {top_str}')
 
           if not self.simulate:
-            # 🔒 Setpoint Lock: no se adopta el nuevo target del optimizador
-            # hasta que la posición real haya recorrido `setpoint_lock_pct`
-            # de la distancia entre el origen y el target vigente. El
-            # optimizador ya calculó u_opt (sigue "pensando" en segundo
-            # plano); si el avance no alcanza, simplemente no se toca el
-            # comando y el servo sigue su trayectoria en curso sin interrupción.
+            # 🔒 Setpoint Lock: the optimizer's new target is not adopted
+            # until the real position has covered `setpoint_lock_pct`
+            # of the distance between the origin and the current target. The
+            # optimizer has already computed u_opt (it keeps "thinking" in the
+            # background); if the progress is not enough, the command is simply not touched
+            # and the servo continues its ongoing trajectory without interruption.
             if self.target_lock_origen_ticks is None or self.ultimo_comando_ticks is None or self.setpoint_lock_pct <= 0:
               avance_ok = True
               progreso = 1.0
@@ -1350,9 +1350,9 @@ class SoftRobotMPCSystem:
               print(f'🔒 Setpoint Lock: avance {progreso * 100:.0f}%/'
                     f'{self.setpoint_lock_pct * 100:.0f}% -> manteniendo target vigente.')
             else:
-              # 🌊 Suavizado exponencial (LERP) en espacio escalado: en vez de
-              # saltar directo a u_opt, se interpola hacia él. alpha bajo ->
-              # transición suave (evita el salto brusco del optimizador).
+              # 🌊 Exponential smoothing (LERP) in scaled space: instead of
+              # jumping straight to u_opt, it interpolates towards it. low alpha ->
+              # smooth transition (avoids the abrupt jump of the optimizer).
               u_suavizado = self.ema_alpha * u_opt + (1.0 - self.ema_alpha) * u_actual_scaled
 
               posiciones_objetivo_ticks = self._ticks_absolutos_desde_escalado(u_suavizado, home_m)
@@ -1363,11 +1363,11 @@ class SoftRobotMPCSystem:
               )
               posiciones_objetivo = [int(round(p)) for p in posiciones_objetivo]
 
-              # Diagnóstico: avisar si el target empuja algún motor al límite
-              # físico configurado (home ± rango). Es la señal de que el punto
-              # puede estar en el borde o fuera de lo que el modelo vio en
-              # entrenamiento -- el optimizador queda "pegado" al límite sin
-              # una solución estable a la que converger.
+              # Diagnostic: warn if the target pushes any motor to the configured
+              # physical limit (home ± range). It is the signal that the point
+              # may be at the edge or outside of what the model saw in
+              # training -- the optimizer gets "stuck" at the limit without
+              # a stable solution to converge to.
               margen_limite_ticks = 15
               en_el_limite = [
                   ids[i] for i in range(len(ids))
@@ -1383,15 +1383,15 @@ class SoftRobotMPCSystem:
               if self.ultimo_comando_ticks is None:
                 self.ultimo_comando_ticks = [int(home_m[f'm{i}']) for i in range(1, 5)]
 
-              # Umbral mínimo de salto (histéresis) CON acumulador anti-
-              # deadband: si el cambio pedido este ciclo es chico, no se
-              # descarta sin más -- se suma (una fracción, ganancia_integral_hist)
-              # al acumulador de ese motor. Si la corrección pedida es
-              # consistente ciclo a ciclo, el acumulador cruza el umbral y
-              # se libera de una vez (efecto integrador); si es ruido
-              # puntual que cambia de signo, se cancela solo. Tope de
-              # anti-windup para no crecer sin límite si queda bloqueado
-              # por otra razón (p.ej. setpoint lock).
+              # Minimum jump threshold (hysteresis) WITH anti-
+              # deadband accumulator: if the change requested this cycle is small, it is not
+              # simply discarded -- a fraction (ganancia_integral_hist) is added
+              # to that motor's accumulator. If the requested correction is
+              # consistent cycle after cycle, the accumulator crosses the threshold and
+              # is released all at once (integrator effect); if it is
+              # one-off noise that changes sign, it cancels itself out. Anti-windup
+              # cap so it does not grow without limit if it stays blocked
+              # for another reason (e.g. setpoint lock).
               tope_acumulador = self.delta_min_ticks * 1.5
               posiciones_finales = []
               for idx_motor, (prev, nuevo) in enumerate(
@@ -1414,9 +1414,9 @@ class SoftRobotMPCSystem:
                       limits_low[idx_motor], limits_high[idx_motor],
                   )))
                   posiciones_finales.append(nuevo_final)
-                  self.acumulador_hist_ticks[idx_motor] = 0.0  # liberado, resetear
+                  self.acumulador_hist_ticks[idx_motor] = 0.0  # released, reset
               self.ultimo_comando_ticks = posiciones_finales
-              # Nuevo origen para medir el avance hacia ESTE target
+              # New origin to measure progress towards THIS target
               self.target_lock_origen_ticks = list(real_m)
 
               t_lock_start = time.perf_counter()
@@ -1427,27 +1427,27 @@ class SoftRobotMPCSystem:
                     ids,
                     posiciones_finales,
                     speed=cfg.DEFAULT_SPEED,
-                    wait_for_reached=False,  # CRÍTICO: no bloquear el lazo MPC
+                    wait_for_reached=False,  # CRITICAL: do not block the MPC loop
                 )
                 t_move_ms = (time.perf_counter() - t_move_start) * 1000.0
               if t_esperando_lock_ms > 200.0 or t_move_ms > 200.0:
                 print(f'🐢 [lazo principal] esperó lock={t_esperando_lock_ms:.0f}ms'
                       f' + move()={t_move_ms:.0f}ms (anormal)')
 
-              # Recentrar u_actual_scaled en lo que REALMENTE se mandó (post-umbral),
-              # no en la sugerencia cruda del MPC, para que la siguiente búsqueda
-              # parta del estado físico real del robot.
+              # Recenter u_actual_scaled on what was ACTUALLY sent (post-threshold),
+              # not on the raw MPC suggestion, so that the next search
+              # starts from the real physical state of the robot.
               u_actual_scaled = self._escalado_desde_ticks_absolutos(posiciones_finales, home_m)
 
-              # Comando enviado vs. posición real leída en este mismo ciclo (paso 1b),
-              # motor por motor, para verificar que el robot sigue las órdenes.
+              # Command sent vs. real position read in this same cycle (step 1b),
+              # motor by motor, to verify that the robot follows the commands.
               comando_str = ', '.join(f'm{mid}={p}' for mid, p in zip(ids, posiciones_finales))
               actual_str = ', '.join(f'm{mid}={p}' for mid, p in zip(ids, real_m))
               print(f'🔧 Comando -> [{comando_str}] | Posición motor -> [{actual_str}]')
           else:
             u_actual_scaled = u_opt
 
-        # 6. Registrar Fila en CSV (target, control, observador y OptiTrack)
+        # 6. Record Row in CSV (target, control, observer and OptiTrack)
         diff_mm = pos_filt_mm - target_wp
         err_mm_val = float(np.linalg.norm(diff_mm))
         cmd_ticks_row = (
@@ -1473,12 +1473,12 @@ class SoftRobotMPCSystem:
         )
         self.log_queue.put(log_row)
 
-        # 7. Evaluar Llegada al Waypoint (siempre respecto a la fuente de
-        # control, cada ciclo -> dist_mm y el dwell necesitan resolución fina).
+        # 7. Evaluate Waypoint Arrival (always with respect to the
+        # control source, every cycle -> dist_mm and the dwell need fine resolution).
         dist_mm = err_mm_val
 
-        # Perf: la impresión en consola es cara (I/O de terminal) y no hace
-        # falta a 60 Hz -> se muestra solo al ritmo del Action Hold.
+        # Perf: printing to the console is expensive (terminal I/O) and is not
+        # needed at 60 Hz -> it is shown only at the Action Hold rate.
         if es_ciclo_action_hold:
           opti_str = (
               f'{np.round(pos_opti_mm, 1)} mm' if not np.isnan(pos_opti_mm).any() else 'N/D'
@@ -1498,19 +1498,19 @@ class SoftRobotMPCSystem:
           )
 
         if en_subobjetivo:
-          # 🧭 Sub-objetivo intermedio: tolerancia laxa, sin dwell -- solo
-          # "pasar cerca y seguir" hacia el próximo (o hacia el waypoint
-          # real si era el último de la cola). No toca wp_reached_time ni
-          # current_wp_idx, eso queda reservado al waypoint real.
+          # 🧭 Intermediate sub-goal: lax tolerance, no dwell -- just
+          # "pass nearby and continue" towards the next one (or towards the real
+          # waypoint if it was the last in the queue). It does not touch wp_reached_time nor
+          # current_wp_idx, that is reserved for the real waypoint.
           if dist_mm <= TOLERANCIA_SUBOBJETIVO_MM:
             cola_subobjetivos.pop(0)
         else:
-          # Banda de histéresis: entrar al dwell exige <= target_tolerance_mm,
-          # pero solo se reinicia el conteo si el error se escapa por encima de
-          # dwell_reset_tolerance_mm (más ancho). Sin esto, cualquier micro-rebote
-          # de ruido (±unos mm, típico del observador LSTM/compliance del cable)
-          # apenas por encima de target_tolerance_mm reinicia el conteo entero y
-          # el waypoint nunca llega a "alcanzado" aunque esté prácticamente ahí.
+          # Hysteresis band: entering the dwell requires <= target_tolerance_mm,
+          # but the count is only restarted if the error escapes above
+          # dwell_reset_tolerance_mm (wider). Without this, any noise micro-bounce
+          # (±a few mm, typical of the LSTM observer/cable compliance)
+          # just above target_tolerance_mm restarts the whole count and
+          # the waypoint never gets to be "reached" even though it is practically there.
           if dist_mm <= target_tolerance_mm:
             if wp_reached_time is None:
               wp_reached_time = time.perf_counter()
@@ -1521,8 +1521,8 @@ class SoftRobotMPCSystem:
                     f' {hold_time_s:.2f}s).\n')
               current_wp_idx += 1
               wp_reached_time = None
-              # Armar la cola de sub-objetivos para el PRÓXIMO waypoint real,
-              # si el salto hacia él es grande (ver DISTANCIA_MAX_SALTO_MM).
+              # Build the queue of sub-goals for the NEXT real waypoint,
+              # if the jump towards it is large (see DISTANCIA_MAX_SALTO_MM).
               if current_wp_idx < len(waypoints_mm) and ultima_pos_conocida_mm is not None:
                 cola_subobjetivos = _generar_subobjetivos(
                     ultima_pos_conocida_mm, waypoints_mm[current_wp_idx]
@@ -1531,13 +1531,13 @@ class SoftRobotMPCSystem:
                   print(f'🧭 Salto grande al WP {current_wp_idx + 1}: '
                         f'insertando {len(cola_subobjetivos)} sub-objetivo(s) intermedio(s).')
           elif dist_mm > dwell_reset_tolerance_mm:
-            # Se escapó de verdad (no ruido) -> recién ahí reiniciar el conteo
+            # It really escaped (not noise) -> only then restart the count
             wp_reached_time = None
           # else: target_tolerance_mm < dist_mm <= dwell_reset_tolerance_mm ->
-          # se mantiene el conteo en curso (si ya había arrancado) sin sumar ni
-          # reiniciar, absorbiendo el ruido de medición dentro de la banda.
+          # the ongoing count is kept (if it had already started) without adding or
+          # restarting, absorbing the measurement noise within the band.
 
-        # 8. Sincronización Estricta a 60 Hz (Pacing de Lazo Real)
+        # 8. Strict 60 Hz Synchronization (Real Loop Pacing)
         t_ejec = time.perf_counter() - t_start
         tiempo_espera = intervalo - t_ejec
         if tiempo_espera > 0:
@@ -1551,7 +1551,7 @@ class SoftRobotMPCSystem:
       print('\n🛑 Interrumpido por el usuario (Ctrl+C). Cerrando de forma segura...')
 
     finally:
-      # Limpieza y cierre seguro del hardware y de los archivos de registro
+      # Safe shutdown of the hardware and the log files
       self._shutdown_hardware()
       self.logging_running = False
       log_thread.join(timeout=2.0)
@@ -1564,44 +1564,44 @@ class SoftRobotMPCSystem:
       target_tolerance_mm=10.0, hold_time_s=0.4, dwell_reset_tolerance_mm=12.0,
       timeout_intento_s=18.0, fraccion_semilla=1.0,
   ):
-    """Protocolo de validación con repeticiones independientes.
+    """Validation protocol with independent repetitions.
 
-    `fraccion_semilla` (0,1]: qué fracción del camino Home->semilla (en
-    espacio de TICKS, no cartesiano) se manda en lazo abierto antes de
-    entregarle el control al CEM. Con 1.0 (default) es el bypass completo de
-    siempre. Con, por ejemplo, 0.3 o 0.5, se le da al CEM un empujón parcial
-    hacia la rama correcta y se deja que complete el resto del camino de
-    forma autónoma -- sirve para distinguir si el problema es solo
-    "descubrir" la rama desde Home (en ese caso, un empujón parcial alcanza
-    para que el CEM converja solo) o si el modelo está mal calibrado en toda
-    esa vecindad del espacio de actuadores (en ese caso, ni con el empujón
-    parcial converge).
+    `fraccion_semilla` (0,1]: what fraction of the Home->seed path (in
+    TICKS space, not cartesian) is sent in open loop before handing
+    control to the CEM. With 1.0 (default) it is the full bypass as
+    always. With, for example, 0.3 or 0.5, the CEM is given a partial push
+    towards the correct branch and left to complete the rest of the path
+    autonomously -- it serves to distinguish whether the problem is only
+    "discovering" the branch from Home (in that case, a partial push is enough
+    for the CEM to converge on its own) or whether the model is miscalibrated across all of
+    that neighborhood of the actuator space (in that case, not even with the partial
+    push does it converge).
 
-    Cada waypoint se intenta `n_repeticiones` veces, arrancando SIEMPRE
-    desde HOME_POSITION (comando directo de motor, sin CEM). Por intento se
-    registra cada ciclo (timestamp, wp_idx, intento_idx, target, posición de
-    control, posición OptiTrack cruda -- "verdad de terreno" --, error
-    instantáneo contra ambas) en memoria, y al cerrar el intento (llegó
-    dentro de tolerancia sostenido `hold_time_s`, o se agotó
-    `timeout_intento_s` sin llegar) se vuelca todo el bloque al CSV con la
-    ÚLTIMA fila marcada 'exito'/'fallo' en la columna `resultado` (el resto
-    queda ''). Ningún intento se descarta, incluso si falla.
+    Each waypoint is attempted `n_repeticiones` times, ALWAYS starting
+    from HOME_POSITION (direct motor command, no CEM). Per attempt, each cycle is
+    recorded (timestamp, wp_idx, intento_idx, target, control
+    position, raw OptiTrack position -- "ground truth" --, instantaneous
+    error against both) in memory, and when the attempt closes (it arrived
+    within tolerance sustained for `hold_time_s`, or `timeout_intento_s`
+    ran out without arriving) the whole block is dumped to the CSV with the
+    LAST row marked 'exito'/'fallo' in the `resultado` column (the rest
+    stay ''). No attempt is discarded, even if it fails.
 
-    A diferencia de run_control_loop (trayectoria continua, pensada para
-    operación real visitando varios waypoints en secuencia), acá cada
-    intento es una prueba INDEPENDIENTE: se resetea toda la memoria del CEM
-    (ver _resetear_estado_mpc_para_nuevo_intento) al arrancar cada uno, para
-    que una repetición no "herede" la convergencia de la anterior al mismo
-    punto -- si no, un éxito podría deberse a la memoria de std/dirección
-    del intento previo, no a que el sistema realmente lo alcance de forma
-    confiable desde cero.
+    Unlike run_control_loop (continuous trajectory, intended for real
+    operation visiting several waypoints in sequence), here each
+    attempt is an INDEPENDENT test: all the CEM memory is reset
+    (see _resetear_estado_mpc_para_nuevo_intento) when starting each one, so
+    that a repetition does not "inherit" the convergence of the previous one to the same
+    point -- otherwise, a success could be due to the std/direction memory
+    of the previous attempt, not to the system really reaching it
+    reliably from scratch.
 
-    NOTA: a diferencia de run_control_loop, este método no implementa EMA
-    (--ema-alpha) ni Setpoint Lock (--setpoint-lock-pct) -- ambos están
-    desactivados por defecto (no-op) en la configuración normal, así que no
-    hay diferencia de comportamiento si se corre con los parámetros por
-    defecto. Si en algún momento se usan esos flags para el experimento,
-    hay que agregarlos acá también.
+    NOTE: unlike run_control_loop, this method does not implement EMA
+    (--ema-alpha) nor Setpoint Lock (--setpoint-lock-pct) -- both are
+    disabled by default (no-op) in the normal configuration, so there is
+    no difference in behavior if it is run with the default
+    parameters. If at some point those flags are used for the experiment,
+    they have to be added here too.
     """
     self.mpc.error_chico_umbral_mm = target_tolerance_mm * 2.0
 
@@ -1639,7 +1639,7 @@ class SoftRobotMPCSystem:
     limits_high = np.clip(home_ticks_np + half_range_np, 0, cfg.DXL_MAXIMUM_POSITION_VALUE)
 
     u_actual_scaled = torch.zeros(4, device=self.device)
-    resumen = []  # (wp_idx, intento_idx, resultado, err_final_opti_mm, duracion_s)
+    resumen = []  # (wp_idx, intento_idx, result, final_opti_err_mm, duration_s)
 
     n_total_intentos = len(waypoints_mm) * n_repeticiones
     print(f'📄 Guardando registros en: {log_path}')
@@ -1668,24 +1668,24 @@ class SoftRobotMPCSystem:
             )
             ultima_pos_conocida_mm = pos_filt_m0 * 1000.0
 
-          # Prueba independiente: sin memoria del intento anterior.
+          # Independent test: no memory of the previous attempt.
           self._resetear_estado_mpc_para_nuevo_intento()
 
           filas_intento = []
-          # Última predicción VÁLIDA del modelo (t+1 y t+t_out) vista durante
-          # este intento -- persiste entre ciclos (a diferencia de
-          # pred_tout_mm_row, que se resetea a NaN cada ciclo para el CSV)
-          # para poder reportar en el RESUMEN final la predicción del último
-          # ciclo de recálculo, útil para comparar en el informe.
+          # Last VALID model prediction (t+1 and t+t_out) seen during
+          # this attempt -- it persists between cycles (unlike
+          # pred_tout_mm_row, which is reset to NaN every cycle for the CSV)
+          # so that the last recompute cycle's prediction can be reported in the final
+          # SUMMARY, useful for comparing in the report.
           ultimo_pred_t1_mm = [float('nan')] * 3
           ultimo_pred_tout_mm = [float('nan')] * 3
 
-          # 🌱 Comando semilla conocido-bueno (ver SEED_COMMANDS_TICKS): si hay
-          # una semilla confirmada para ESTE target y USAR_SEMILLAS_FIJAS está
-          # activo, mandar el comando fijo directo (sin CEM) y esperar a que la
-          # posición real converja ahí, ANTES de dejar que el CEM tome el
-          # control -- igual que en run_control_loop. Se salta el troceo por
-          # sub-objetivos (la semilla ya es un salto directo confirmado a mano).
+          # 🌱 Known-good seed command (see SEED_COMMANDS_TICKS): if there is
+          # a confirmed seed for THIS target and USAR_SEMILLAS_FIJAS is
+          # active, send the fixed command directly (no CEM) and wait for the
+          # real position to converge there, BEFORE letting the CEM take
+          # control -- same as in run_control_loop. The chopping into
+          # sub-goals is skipped (the seed is already a direct jump confirmed by hand).
           seed_para_este_target = _buscar_semilla_para_target(target_wp)
           usar_semilla_este_intento = (
               USAR_SEMILLAS_FIJAS and not self.simulate and seed_para_este_target is not None
@@ -1784,10 +1784,10 @@ class SoftRobotMPCSystem:
           t_intento_inicio = time.perf_counter()
           resultado_intento = None
           err_final_opti_mm = float('nan')
-          # Valor inicial antes del primer cálculo real (ver misma inicialización
-          # en run_control_loop) -- sin esto, el primer ciclo de cada intento
-          # revienta con UnboundLocalError si --use-optitrack + action_hold_cycles>1
-          # (recién se recalcula en el primer ciclo de Action Hold, no en el 1ro).
+          # Initial value before the first real computation (see the same initialization
+          # in run_control_loop) -- without this, the first cycle of each attempt
+          # blows up with UnboundLocalError if --use-optitrack + action_hold_cycles>1
+          # (it is only recomputed in the first Action Hold cycle, not in the 1st).
           pos_obs_mm = np.zeros(3)
 
           while resultado_intento is None:
@@ -1803,8 +1803,8 @@ class SoftRobotMPCSystem:
                 .repeat(self.t_out, 1)
             )
 
-            # 1. Sensores + estimación del observador (para diagnóstico) +
-            # pose OptiTrack cruda (verdad de terreno, None si no hay dato fresco).
+            # 1. Sensors + observer estimate (for diagnostics) +
+            # raw OptiTrack pose (ground truth, None if there is no fresh data).
             p_b, q_b, p_e, q_e, real_m, couple_m, tension_m, filtrar_pos_ctrl = (
                 self._leer_ciclo_sensores(target_activo, home_m)
             )
@@ -1818,7 +1818,7 @@ class SoftRobotMPCSystem:
             if pos_opti_mm is None:
               pos_opti_mm = np.full(3, np.nan)
 
-            # 2. Transformación cinemática relativa + filtrado causal
+            # 2. Relative kinematic transformation + causal filtering
             meta_ticks_abs = self._ticks_absolutos_desde_escalado(u_actual_scaled, home_m)
             meta_m = meta_ticks_abs.cpu().numpy().tolist()
             dict_features, pos_filt_m = self._procesar_lecturas_cinematicas(
@@ -1826,7 +1826,7 @@ class SoftRobotMPCSystem:
                 filtrar_posicion=filtrar_pos_ctrl,
             )
 
-            # 3. Normalizar y guardar en búfer
+            # 3. Normalize and save in buffer
             vec_scaled = self.scaler.scale(dict_features)
             self.buffer.append(vec_scaled)
             x_hist_tensor = torch.stack(list(self.buffer)[-self.t_in:]).unsqueeze(0)
@@ -1835,8 +1835,8 @@ class SoftRobotMPCSystem:
             current_pos_mm = torch.tensor(pos_filt_mm, device=self.device, dtype=torch.float32)
             ultima_pos_conocida_mm = pos_filt_mm.copy()
 
-            # 4-5. CEM (Action Hold) + envío de comando con la misma
-            # histéresis anti-deadband y barrera de límites que run_control_loop.
+            # 4-5. CEM (Action Hold) + command sending with the same
+            # anti-deadband hysteresis and limits barrier as run_control_loop.
             es_ciclo_action_hold = (control_counter % self.action_hold_cycles == 0)
             bloqueado_hist_row = [0, 0, 0, 0]
             en_limite_row = [0, 0, 0, 0]
@@ -1849,11 +1849,11 @@ class SoftRobotMPCSystem:
                   x_hist_tensor=x_hist_tensor, y_ref_mm=y_ref_mm,
                   u_current_scaled=u_actual_scaled, current_pos_mm=current_pos_mm,
               )
-              # Predicción del modelo para el paso t+t_out bajo el comando
-              # elegido -- para comparar en el print/CSV contra Ctrl/Opti.
+              # Model prediction for step t+t_out under the chosen
+              # command -- to compare in the print/CSV against Ctrl/Opti.
               pred_tout_mm_row = y_pred_final_mm[-1].cpu().numpy().tolist()
-              # t+1 y t+t_out del último ciclo de recálculo -- persiste hasta
-              # el cierre del intento, para el RESUMEN final (ver más abajo).
+              # t+1 and t+t_out of the last recompute cycle -- persists until
+              # the end of the attempt, for the final SUMMARY (see below).
               ultimo_pred_t1_mm = y_pred_final_mm[0].cpu().numpy().tolist()
               ultimo_pred_tout_mm = pred_tout_mm_row
 
@@ -1911,9 +1911,9 @@ class SoftRobotMPCSystem:
               else:
                 u_actual_scaled = u_opt
 
-            # 6. Fila del ciclo -- se acumula en memoria; se vuelca completa
-            # al terminar el intento (para poder marcar 'resultado' en la
-            # última fila sin tener que reescribir el CSV después).
+            # 6. Cycle row -- accumulated in memory; it is dumped entirely
+            # at the end of the attempt (so that 'resultado' can be marked in the
+            # last row without having to rewrite the CSV afterwards).
             diff_mm = pos_filt_mm - target_wp
             err_mm_val = float(np.linalg.norm(diff_mm))
             diff_opti_mm = pos_opti_mm - target_wp
@@ -1943,17 +1943,17 @@ class SoftRobotMPCSystem:
             )
             filas_intento.append(fila)
 
-            # 7. Evaluar sub-objetivo / llegada (dwell) / timeout.
-            # dist_mm (err_mm_val/err_opti_mm_val) es SIEMPRE contra target_wp
-            # (el waypoint final) -- correcto para el criterio de éxito/fallo
-            # reportado, pero NO sirve para decidir cuándo pasar al siguiente
-            # sub-objetivo intermedio (si target_activo != target_wp, el robot
-            # puede estar exactamente sobre el sub-objetivo y aun así lejos de
-            # target_wp -- la cola nunca avanzaría). Para eso se usa una
-            # distancia aparte, contra target_activo, igual que run_control_loop
-            # (ahí target_wp SE REASIGNA al sub-objetivo vigente cada ciclo;
-            # acá se mantiene fijo en el destino final durante todo el intento,
-            # así que hace falta esta distancia separada).
+            # 7. Evaluate sub-goal / arrival (dwell) / timeout.
+            # dist_mm (err_mm_val/err_opti_mm_val) is ALWAYS against target_wp
+            # (the final waypoint) -- correct for the reported success/failure
+            # criterion, but it is NOT useful for deciding when to move on to the next
+            # intermediate sub-goal (if target_activo != target_wp, the robot
+            # may be exactly on the sub-goal and still far from
+            # target_wp -- the queue would never advance). For that a separate
+            # distance is used, against target_activo, same as run_control_loop
+            # (there target_wp IS REASSIGNED to the current sub-goal every cycle;
+            # here it is kept fixed at the final destination during the whole attempt,
+            # so this separate distance is needed).
             dist_mm = err_mm_val
             dist_a_target_activo = float(np.linalg.norm(pos_filt_mm - target_activo))
 
@@ -1961,15 +1961,15 @@ class SoftRobotMPCSystem:
               opti_str = (
                   f'{np.round(pos_opti_mm, 1)} mm' if not np.isnan(pos_opti_mm).any() else 'N/D'
               )
-              # Err (ctrl y opti) SIEMPRE se calculan contra target_wp (el
-              # waypoint final real) -- por eso el print también tiene que
-              # mostrar target_wp como "Target", nunca target_activo. Si
-              # target_activo es un sub-objetivo intermedio (target_activo !=
-              # target_wp), se muestra aparte y claramente etiquetado, para no
-              # confundirlo con el destino contra el que se mide el error
-              # (antes el print mostraba target_activo bajo la etiqueta
-              # "Target:", dando una distancia visual que no correspondía con
-              # el Err calculado -- confuso pero no era un error de cálculo).
+              # Err (ctrl and opti) are ALWAYS computed against target_wp (the real
+              # final waypoint) -- that is why the print must also
+              # show target_wp as "Target", never target_activo. If
+              # target_activo is an intermediate sub-goal (target_activo !=
+              # target_wp), it is shown separately and clearly labeled, so as not to
+              # confuse it with the destination against which the error is measured
+              # (before, the print showed target_activo under the label
+              # "Target:", giving a visual distance that did not match the
+              # computed Err -- confusing but it was not a computation error).
               err_opti_str = f'{err_opti_mm_val:.2f} mm' if not np.isnan(err_opti_mm_val) else 'N/D'
               subobj_str = (
                   f' (vía sub-objetivo: {np.round(target_activo, 1)} mm)' if en_subobjetivo else ''
@@ -1983,19 +1983,19 @@ class SoftRobotMPCSystem:
                     f't={t_transcurrido:.1f}/{timeout_intento_s:.0f}s')
 
             if en_subobjetivo:
-              # Navegación interna (trocear saltos grandes): distancia al
-              # SUB-OBJETIVO vigente, no al destino final -- no es lo que se
-              # reporta como resultado del experimento, solo decide cuándo
-              # pasar al siguiente punto de la cola.
+              # Internal navigation (chopping large jumps): distance to the
+              # current SUB-GOAL, not to the final destination -- it is not what
+              # is reported as the experiment result, it only decides when to
+              # move on to the next point in the queue.
               if dist_a_target_activo <= TOLERANCIA_SUBOBJETIVO_MM:
                 cola_subobjetivos.pop(0)
             else:
-              # Criterio de ÉXITO/FALLO real: contra pos_opti (verdad de
-              # terreno), no contra pos_ctrl. Si OptiTrack no tiene un frame
-              # fresco (err_opti_mm_val = NaN), la comparación numérica da
-              # False sola -- ese ciclo no cuenta ni para avanzar el dwell ni
-              # para resetearlo, simplemente queda "en pausa" hasta que vuelva
-              # a haber dato fresco (no falsea el resultado con dato viejo).
+              # Real SUCCESS/FAILURE criterion: against pos_opti (ground
+              # truth), not against pos_ctrl. If OptiTrack has no fresh
+              # frame (err_opti_mm_val = NaN), the numeric comparison gives
+              # False on its own -- that cycle counts neither for advancing the dwell nor
+              # for resetting it, it is simply "paused" until there is
+              # fresh data again (it does not falsify the result with stale data).
               if err_opti_mm_val <= target_tolerance_mm:
                 if wp_reached_time is None:
                   wp_reached_time = time.perf_counter()
@@ -2010,14 +2010,14 @@ class SoftRobotMPCSystem:
               err_final_opti_mm = err_opti_mm_val
               print(f'⏱️ Timeout ({timeout_intento_s:.0f}s) sin alcanzar tolerancia -- fallo.')
 
-            # 8. Pacing a 60 Hz
+            # 8. Pacing at 60 Hz
             t_ejec = time.perf_counter() - t_start
             tiempo_espera = intervalo - t_ejec
             if tiempo_espera > 0:
               time.sleep(tiempo_espera)
 
-          # Cierre del intento: marcar resultado en la ÚLTIMA fila y volcar
-          # todo el bloque al logger (recién ahora, ya con 'resultado' fijado).
+          # End of the attempt: mark the result in the LAST row and dump
+          # the whole block to the logger (only now, with 'resultado' already set).
           filas_intento[-1][-1] = resultado_intento
           for fila in filas_intento:
             self.log_queue.put(fila)
@@ -2060,9 +2060,9 @@ class SoftRobotMPCSystem:
         n_ok = sum(resultados)
         print(f'WP {wp_idx + 1}: {n_ok}/{len(resultados)} éxitos')
 
-      # Resumen aparte en CSV (una fila por intento, con target + predicciones
-      # t+1/t+t_out) -- para tener guardado y poder comparar/graficar en el
-      # informe sin tener que reprocesar el log completo de 60Hz.
+      # Separate summary in CSV (one row per attempt, with target + t+1/t+t_out
+      # predictions) -- to have it saved and be able to compare/plot in the
+      # report without having to reprocess the whole 60Hz log.
       resumen_path = os.path.abspath(f'mpc_experimento_repeticiones_resumen_{timestamp}.csv')
       with open(resumen_path, 'w', newline='') as f_resumen:
         writer = csv.writer(f_resumen)
@@ -2082,7 +2082,7 @@ class SoftRobotMPCSystem:
 
 
 # ==============================================================================
-# 7. PUNTO DE ENTRADA
+# 7. ENTRY POINT
 # ==============================================================================
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(

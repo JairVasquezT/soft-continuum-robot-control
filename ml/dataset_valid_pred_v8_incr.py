@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 
 # =====================================================================
-# 1. CONFIGURACIÓN Y ARCHIVOS
+# 1. CONFIGURATION AND FILES
 # =====================================================================
 PATH_CSV_TEST = 'corto_20260730_195350_730.csv'
 PATH_METADATA = 'dataset_pred_v08_completo_10_conRot_directo_filt_params.json'
@@ -17,7 +17,7 @@ PATH_MODEL_WEIGHTS = 'best_mpc_pinn_predictor_incr.pth'
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'🚀 Evaluando en dispositivo: {DEVICE}')
 
-# Cargar metadatos
+# Load metadata
 with open(PATH_METADATA, 'r') as f:
   metadata = json.load(f)
 
@@ -38,7 +38,7 @@ LIMITES_TORQUE = (-500.0, 500.0)
 LIMITES_TENSION = (500.0, 2000.0)
 
 # =====================================================================
-# 2. PROCESAMIENTO Y FILTRADO DEL CSV DE PRUEBA
+# 2. PROCESSING AND FILTERING OF THE TEST CSV
 # =====================================================================
 columnas = [
     'timestamp',
@@ -82,12 +82,12 @@ df = pd.read_csv(PATH_CSV_TEST, names=columnas)
 df['delta_t'] = df['t_relativo'].diff().bfill()
 df = df.iloc[1:].reset_index(drop=True)
 
-# Geometría y Motores
+# Geometry and Motors
 for i in range(1, 5):
   df[f'delta_real_m{i}'] = df[f'real_m{i}'] - ANGULOS_CALIBRACION[f'm{i}']
   df[f'delta_meta_m{i}'] = df[f'meta_m{i}'] - ANGULOS_CALIBRACION[f'm{i}']
 
-# Posición relativa al marco de la BASE
+# Position relative to the BASE frame
 p_base_arr = df[['base_x', 'base_y', 'base_z']].values
 p_efector_arr = df[['efector_x', 'efector_y', 'efector_z']].values
 q_base_arr = df[['base_qx', 'base_qy', 'base_qz', 'base_qw']].values
@@ -100,7 +100,7 @@ df['rel_y'] = p_rel[:, 1]
 df['rel_z'] = p_rel[:, 2]
 
 
-# Filtro Pasabajas
+# Low-pass Filter
 def aplicar_filtro_pasabajas(data, cutoff_hz=6.0, fs_hz=60.0, order=2):
   nyquist = 0.5 * fs_hz
   normal_cutoff = cutoff_hz / nyquist
@@ -120,7 +120,7 @@ for i in range(1, 5):
   )
 
 
-# Escalado estricto usando PARÁMETROS DE ENTRENAMIENTO
+# Strict scaling using TRAINING PARAMETERS
 def escalar_con_parametros(df_raw, columnas_nombres, dict_params):
   scaled_matrix = np.zeros((len(df_raw), len(columnas_nombres)))
   for idx, col in enumerate(columnas_nombres):
@@ -159,14 +159,14 @@ cols_u_fut = [
     'delta_meta_m4',
 ]
 
-# 🔴 CAMBIO AQUÍ: Solo 3 salidas
+# 🔴 CHANGE HERE: Only 3 outputs
 cols_y = ['rel_x', 'rel_y', 'rel_z']
 
 X_scaled = escalar_con_parametros(df, cols_x_hist, X_TRANS)
 U_scaled = escalar_con_parametros(df, cols_u_fut, X_TRANS)
 Y_scaled = escalar_con_parametros(df, cols_y, Y_TRANS)
 
-# Generar Secuencias
+# Generate Sequences
 X_hist_list, U_cand_list, Y_fut_list, Y_t0_list = [], [], [], []
 for i in range(len(df) - T_IN - T_OUT):
   window_delta_t = df['delta_t'].iloc[i : i + T_IN + T_OUT].values
@@ -180,15 +180,15 @@ for i in range(len(df) - T_IN - T_OUT):
   X_hist_list.append(X_scaled[i : i + T_IN])
   U_cand_list.append(U_scaled[i + T_IN])
   Y_fut_list.append(Y_scaled[i + T_IN : i + T_IN + T_OUT])
-  # Posición escalada en t0 (último paso del historial) -- el modelo
-  # incremental predice desplazamientos respecto a ESTA fila, igual que en
+  # Scaled position at t0 (last history step) -- the model
+  # incremental predicts displacements relative to THIS row, same as in
   # dataset_pred_filt.py/train_pred_incr.py.
   Y_t0_list.append(Y_scaled[i + T_IN - 1])
 
 X_test = torch.tensor(np.array(X_hist_list), dtype=torch.float32)
 U_test = torch.tensor(np.array(U_cand_list), dtype=torch.float32)
 Y_test_scaled = torch.tensor(np.array(Y_fut_list), dtype=torch.float32)
-Y_t0_scaled = np.array(Y_t0_list)  # [N, 3] -- posición absoluta escalada en t0
+Y_t0_scaled = np.array(Y_t0_list)  # [N, 3] -- scaled absolute position at t0
 
 print(
     f'✓ Dataset de Prueba Cargado: {len(X_test)} muestras válidas generadas.\n'
@@ -204,7 +204,7 @@ class MPCDirectPredictor(nn.Module):
       hidden_size=128,
       num_layers=2,
       t_out=10,
-      output_dim=3,  # 🔴 CAMBIO AQUÍ: 3 dimensiones por defecto
+      output_dim=3,  # 🔴 CHANGE HERE: 3 dimensions by default
       dropout=0.1,
   ):
     super(MPCDirectPredictor, self).__init__()
@@ -252,7 +252,7 @@ model.load_state_dict(checkpoint['model_state_dict'])
 model.eval()
 
 # =====================================================================
-# 4. INFERENCIA Y EVALUACIÓN EN UNIDADES REALES (MILÍMETROS)
+# 4. INFERENCE AND EVALUATION IN REAL UNITS (MILLIMETERS)
 # =====================================================================
 with torch.no_grad():
   Y_pred_scaled = model(X_test.to(DEVICE), U_test.to(DEVICE)).cpu().numpy()
@@ -260,7 +260,7 @@ with torch.no_grad():
 Y_true_scaled = Y_test_scaled.numpy()
 
 
-# Función de Desescalado -- para una POSICIÓN ABSOLUTA en [-1,1] (lleva el
+# Descaling Function -- for an ABSOLUTE POSITION in [-1,1] (takes the
 # offset/bias "+1"+min).
 def desescalar_var(val_scaled, col_name, dict_params):
   min_t = dict_params[col_name]['min_t']
@@ -268,19 +268,19 @@ def desescalar_var(val_scaled, col_name, dict_params):
   return min_t + (val_scaled + 1.0) * (max_t - min_t) / 2.0
 
 
-# Función de Desescalado -- para un DESPLAZAMIENTO (diferencia entre dos
-# valores ya en [-1,1]), SIN el offset/bias: un delta no tiene "origen"
-# propio (ver misma fórmula en train_pred_incr.py/PINNLossMPC).
+# Descaling Function -- for a DISPLACEMENT (difference between two
+# values already in [-1,1]), WITHOUT the offset/bias: a delta has no "origin"
+# own (see same formula in train_pred_incr.py/PINNLossMPC).
 def desescalar_delta_var(delta_scaled, col_name, dict_params):
   min_t = dict_params[col_name]['min_t']
   max_t = dict_params[col_name]['max_t']
   return delta_scaled * (max_t - min_t) / 2.0
 
 
-# Este modelo predice DESPLAZAMIENTOS INCREMENTALES (ΔX, ΔY, ΔZ) respecto a
-# t0, no posición absoluta -- hay que desescalar el delta y sumarle la
-# posición REAL en t0 para reconstruir la trayectoria absoluta comparable
-# contra Y_true (que sigue siendo posición absoluta, tal cual sale del
+# This model predicts INCREMENTAL DISPLACEMENTS (ΔX, ΔY, ΔZ) relative to
+# t0, not absolute position -- the delta must be descaled and added to the
+# REAL position at t0 to reconstruct the comparable absolute trajectory
+# against Y_true (which is still absolute position, exactly as it comes out of the
 # dataset).
 X_t0_mm = desescalar_var(Y_t0_scaled[:, 0], 'rel_x', Y_TRANS) * 1000.0  # [N]
 Y_t0_mm = desescalar_var(Y_t0_scaled[:, 1], 'rel_y', Y_TRANS) * 1000.0
@@ -290,7 +290,7 @@ dX_pred_mm = desescalar_delta_var(Y_pred_scaled[:, :, 0], 'rel_x', Y_TRANS) * 10
 dY_pred_mm = desescalar_delta_var(Y_pred_scaled[:, :, 1], 'rel_y', Y_TRANS) * 1000.0
 dZ_pred_mm = desescalar_delta_var(Y_pred_scaled[:, :, 2], 'rel_z', Y_TRANS) * 1000.0
 
-# Convertir a Metros -> Milímetros (posición ABSOLUTA reconstruida = t0 + delta)
+# Convert to Meters -> Millimeters (reconstructed ABSOLUTE position = t0 + delta)
 X_pred_mm = X_t0_mm[:, None] + dX_pred_mm
 Y_pred_mm = Y_t0_mm[:, None] + dY_pred_mm
 Z_pred_mm = Z_t0_mm[:, None] + dZ_pred_mm
@@ -328,14 +328,14 @@ for paso in range(T_OUT):
   )
 
 # =====================================================================
-# 4.5. ERROR ANGULAR ENTRE EL VECTOR DE DESPLAZAMIENTO PREDICHO Y EL REAL
+# 4.5. ANGULAR ERROR BETWEEN THE PREDICTED AND THE REAL DISPLACEMENT VECTOR
 # =====================================================================
-# Para cada transición consecutiva del horizonte (t+k -> t+k+1), compara la
-# DIRECCIÓN del desplazamiento 3D predicho contra la real, vía el ángulo
-# entre ambos vectores (0° = misma dirección, 180° = opuestos). Es la
-# contraparte, en grados y como métrica de evaluación (no de entrenamiento),
-# de la similitud coseno que usa loss_direction_xz en train_pred.py -- pero
-# acá en 3D completo, no solo X-Z, para tener el panorama completo.
+# For each consecutive transition of the horizon (t+k -> t+k+1), compares the
+# DIRECTION of the predicted 3D displacement against the real one, via the angle
+# between both vectors (0° = same direction, 180° = opposite). It is the
+# counterpart, in degrees and as an evaluation metric (not a training one),
+# of the cosine similarity used by loss_direction_xz in train_pred.py -- but
+# here in full 3D, not just X-Z, to get the complete picture.
 pos_pred_mm = np.stack([X_pred_mm, Y_pred_mm, Z_pred_mm], axis=-1)  # [N, T_OUT, 3]
 pos_true_mm = np.stack([X_true_mm, Y_true_mm, Z_true_mm], axis=-1)  # [N, T_OUT, 3]
 
@@ -344,8 +344,8 @@ dir_true = pos_true_mm[:, 1:, :] - pos_true_mm[:, :-1, :]  # [N, T_OUT-1, 3]
 
 norm_pred = np.linalg.norm(dir_pred, axis=-1)
 norm_true = np.linalg.norm(dir_true, axis=-1)
-EPS_MAGNITUD_MM = 0.5  # transiciones donde el desplazamiento real es < 0.5mm
-# no tienen una dirección bien definida (ruido) -- se excluyen del promedio.
+EPS_MAGNITUD_MM = 0.5  # transitions where the real displacement is < 0.5mm
+# do not have a well-defined direction (noise) -- they are excluded from the average.
 validas = (norm_pred > EPS_MAGNITUD_MM) & (norm_true > EPS_MAGNITUD_MM)
 
 cos_theta = np.sum(dir_pred * dir_true, axis=-1) / (norm_pred * norm_true + 1e-9)
@@ -368,20 +368,20 @@ angulo_medio_global = np.mean(angulo_deg[validas])
 print(f'\n📐 ÁNGULO MEDIO GLOBAL (todas las transiciones válidas): '
       f'{angulo_medio_global:.2f}°')
 
-# Filtrar solo transiciones con desplazamiento por encima del ruido de medición.
-# 3mm por paso (16.7ms) implicaría ~180mm/s, más rápido que cualquier tramo de
-# este CSV de test (desplazamiento real máximo observado: 1.84mm/paso, media
-# 0.63mm) -- con ese umbral no queda ninguna muestra. 1.0mm sigue estando muy
-# por encima del piso de ruido típico de OptiTrack (sub-milimétrico) y deja
-# ~17% de las transiciones (las de movimiento más franco) para promediar.
+# Filter only transitions with displacement above the measurement noise.
+# 3mm per step (16.7ms) would imply ~180mm/s, faster than any segment of
+# this test CSV (maximum observed real displacement: 1.84mm/step, mean
+# 0.63mm) -- with that threshold no sample remains. 1.0mm is still well
+# above the typical OptiTrack noise floor (sub-millimeter) and leaves
+# ~17% of the transitions (those with the clearest movement) to average.
 UMBRAL_DESPLAZAMIENTO_MM = 1.0
 
-# pos_t1/pos_t2 = posición REAL en cada paso consecutivo del horizonte
-# (pos_true_mm[:, 1:, :] - pos_true_mm[:, :-1, :] es exactamente dir_true,
-# ya en mm, así que desplazamiento == norm_true calculado arriba).
+# pos_t1/pos_t2 = REAL position at each consecutive step of the horizon
+# (pos_true_mm[:, 1:, :] - pos_true_mm[:, :-1, :] is exactly dir_true,
+# already in mm, so displacement == norm_true computed above).
 pos_t1 = pos_true_mm[:, :-1, :]
 pos_t2 = pos_true_mm[:, 1:, :]
-desplazamiento = np.linalg.norm(pos_t2 - pos_t1, axis=-1)  # ya en mm
+desplazamiento = np.linalg.norm(pos_t2 - pos_t1, axis=-1)  # already in mm
 
 mask_movimiento_real = desplazamiento > UMBRAL_DESPLAZAMIENTO_MM
 
@@ -390,23 +390,23 @@ print(f'Ángulo medio (solo desplazamientos > {UMBRAL_DESPLAZAMIENTO_MM}mm): '
       f'{angulo_filtrado.mean():.2f}° ({mask_movimiento_real.sum()} muestras)')
 
 # =====================================================================
-# 5. VISUALIZACIÓN: ROLLOUT CADA 10 VENTANAS SOBRE LA TRAYECTORIA REAL
+# 5. VISUALIZATION: ROLLOUT EVERY 10 WINDOWS OVER THE REAL TRAJECTORY
 # =====================================================================
 PASO_MUESTRAS = 10
-N_MAX = 4000  # Límite a los primeros 1000 datos
+N_MAX = 4000  # Limit to the first 1000 samples
 
-# Acortar los datos reales a los primeros N_MAX puntos
+# Truncate the real data to the first N_MAX points
 real_continuo = np.stack([X_true_mm[:N_MAX, 0], Y_true_mm[:N_MAX, 0], Z_true_mm[:N_MAX, 0]], axis=1)
 tiempo_continuo = np.arange(len(real_continuo))
 
-# Asegurar que las anclas de predicción no superen el rango de 1000 datos
+# Ensure the prediction anchors do not exceed the 1000-sample range
 limite_anclas = min(len(X_test), N_MAX) - T_OUT
 anclas = list(range(0, max(0, limite_anclas), PASO_MUESTRAS))
 cmap = plt.get_cmap('plasma')
 
 fig2 = plt.figure(figsize=(16, 8))
 
-# Subplot 3D
+# 3D Subplot
 ax1 = fig2.add_subplot(1, 2, 1, projection='3d')
 ax1.plot(
     real_continuo[:, 0], real_continuo[:, 1], real_continuo[:, 2],
@@ -425,7 +425,7 @@ ax1.set_zlabel('Z (mm)')
 ax1.set_title(f'Real (negro) + {len(anclas)} rollouts de {T_OUT} pasos (primeros {N_MAX} datos)')
 ax1.legend()
 
-# Subplots 1D por eje
+# 1D Subplots per axis
 ejes = [('X', X_true_mm[:N_MAX, 0], X_pred_mm), 
         ('Y', Y_true_mm[:N_MAX, 0], Y_pred_mm),
         ('Z', Z_true_mm[:N_MAX, 0], Z_pred_mm)]

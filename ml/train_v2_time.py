@@ -15,19 +15,19 @@ parser.add_argument('--lr', type=float, default=0.00025)
 args = parser.parse_args()
 
 # ==========================================
-# 1. CONFIGURACIÓN Y CARGA DE DATOS (VERSION V2)
+# 1. CONFIGURATION AND DATA LOADING (VERSION V2)
 # ==========================================
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'🔥 Entrenando en el dispositivo: {device}')
 
-# Cargar el dataset v2 (9 columnas de entrada)
+# Load the v2 dataset (9 input columns)
 data_v2 = np.load(
     'dataset_v02_real_meta_sinRot_filt.npy', allow_pickle=True
 ).item()
 X_raw = data_v2['X']  # shape: (N, 9)
 Y_raw = data_v2['Y']  # shape: (N, 3) -> rel_x, rel_y, rel_z
 
-# Cargar los parámetros de normalización JSON
+# Load the JSON normalization parameters
 with open('dataset_v02_real_meta_sinRot_filt_params.json', 'r') as f:
   norm_params = json.load(f)
 
@@ -36,14 +36,14 @@ Y_TRANS = norm_params['Y_transformer']
 
 
 # ==========================================
-# 2. VENTANADO CON SPLIT TRAIN/VAL REPARTIDO Y SIN FUGA
+# 2. WINDOWING WITH DISTRIBUTED, LEAK-FREE TRAIN/VAL SPLIT
 # ==========================================
-# La grabación se divide en N_BLOQUES contiguos a lo largo de TODA la
-# secuencia (no solo el tramo final); una fracción FRAC_VAL de esos
-# bloques, repartidos uniformemente, se reserva para validación. Cualquier
-# ventana cuyo rango de filas cruce el borde entre un bloque de train y uno
-# de val se descarta por completo, así ningún par comparte un solo paso
-# entre ambos conjuntos (misma estrategia que train_v8_time_100_2.py).
+# The recording is divided into N_BLOQUES contiguous blocks across the WHOLE
+# sequence (not just the final stretch); a fraction FRAC_VAL of those
+# blocks, uniformly distributed, is reserved for validation. Any
+# window whose row range crosses the border between a train block and a
+# val block is discarded entirely, so no pair shares a single step
+# between the two sets (same strategy as train_v8_time_100_2.py).
 FRAC_VAL = 0.10
 N_BLOQUES = 20
 
@@ -91,7 +91,7 @@ X_val, y_val = split['val']
 
 print(f'📦 Muestras de entrenamiento: {len(X_train)} | Muestras de validación: {len(X_val)}')
 
-# DataLoaders separados
+# Separate DataLoaders
 train_loader = DataLoader(
     TensorDataset(
         torch.tensor(X_train, dtype=torch.float32),
@@ -109,7 +109,7 @@ val_loader = DataLoader(
 
 
 # ==========================================
-# 3. FUNCIÓN DE PÉRDIDA FÍSICAMENTE INSPIRADA (PINN CUSTOM LOSS)
+# 3. PHYSICALLY INSPIRED LOSS FUNCTION (PINN CUSTOM LOSS)
 # ==========================================
 class RobotBlandoLoss(nn.Module):
 
@@ -122,13 +122,13 @@ class RobotBlandoLoss(nn.Module):
       w_cyl_max=1.0,
   ):
     super(RobotBlandoLoss, self).__init__()
-    self.base_loss = nn.HuberLoss()  # Pérdida base robusta
+    self.base_loss = nn.HuberLoss()  # Robust base loss
     self.w_pinn = w_pinn
     self.w_sph_max = w_sph_max
     self.w_sph_min = w_sph_min
     self.w_cyl_max = w_cyl_max
 
-    # Guardar constantes de desescalado para rel_x, rel_y, rel_z
+    # Save unscaling constants for rel_x, rel_y, rel_z
     self.min_x, self.max_x = (
         y_params['rel_x']['min_t'],
         y_params['rel_x']['max_t'],
@@ -143,28 +143,28 @@ class RobotBlandoLoss(nn.Module):
     )
 
   def forward(self, y_pred, y_true):
-    # 1. Pérdida estándar en el espacio normalizado [-1, 1]
+    # 1. Standard loss in the normalized space [-1, 1]
     loss_base = self.base_loss(y_pred, y_true)
 
-    # 2. Desescalar predicciones a dimensiones físicas reales
+    # 2. Unscale predictions to real physical dimensions
     x_real = self.min_x + (y_pred[:, 0] + 1.0) * (self.max_x - self.min_x) / 2.0
     y_real = self.min_y + (y_pred[:, 1] + 1.0) * (self.max_y - self.min_y) / 2.0
     z_real = self.min_z + (y_pred[:, 2] + 1.0) * (self.max_z - self.min_z) / 2.0
 
-    # 3. Restricciones geométricas reales
+    # 3. Real geometric constraints
     dist_esferica_cuadrada = x_real**2 + y_real**2 + z_real**2
     dist_cilindrica_cuadrada = x_real**2 + z_real**2
 
-    # A) Esfera Máxima: r <= 0.335 m
+    # A) Maximum Sphere: r <= 0.335 m
     pen_sph_max = torch.relu(dist_esferica_cuadrada - 0.335**2)
 
-    # B) Esfera Mínima: r >= 0.22 m
+    # B) Minimum Sphere: r >= 0.22 m
     pen_sph_min = torch.relu(0.22**2 - dist_esferica_cuadrada)
 
-    # C) Cilindro Máximo: r_cyl <= 0.23 m
+    # C) Maximum Cylinder: r_cyl <= 0.23 m
     pen_cyl_max = torch.relu(dist_cilindrica_cuadrada - 0.23**2)
 
-    # Penalización PINN promedio
+    # Average PINN penalty
     loss_pinn = (
         self.w_sph_max * torch.mean(pen_sph_max)
         + self.w_sph_min * torch.mean(pen_sph_min)
@@ -178,7 +178,7 @@ criterion = RobotBlandoLoss(y_params=Y_TRANS, w_pinn=0.05)
 
 
 # ==========================================
-# 4. ARQUITECTURA LSTM
+# 4. LSTM ARCHITECTURE
 # ==========================================
 class SoftRobotLSTM(nn.Module):
 
@@ -198,27 +198,27 @@ class SoftRobotLSTM(nn.Module):
     self.fc = nn.Linear(hidden_size, output_size)
 
   def forward(self, x):
-    # PyTorch gestiona los estados h0 y c0 automáticamente si se omiten
+    # PyTorch handles the h0 and c0 states automatically if omitted
     out, _ = self.lstm(x)
     last_step = out[:, -1, :]
     out_regularized = self.dropout(last_step)
     return self.fc(out_regularized)
 
 
-# Instanciar Modelo, Optimidador y SCHEDULER
+# Instantiate Model, Optimizer and SCHEDULER
 model = SoftRobotLSTM(
     input_size=9, hidden_size=args.hidden_size, num_layers=args.num_layers,
     output_size=3, dropout=args.dropout,
 ).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-# SCHEDULER: Reduce el LR si val_loss no mejora tras 8 épocas
+# SCHEDULER: Reduces the LR if val_loss does not improve after 8 epochs
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
     optimizer, mode='min', factor=0.5, patience=8, min_lr=1e-6
 )
 
 # ==========================================
-# 5. BUCLE DE ENTRENAMIENTO Y VALIDACIÓN
+# 5. TRAINING AND VALIDATION LOOP
 # ==========================================
 PATH_PESOS_SALIDA = args.output
 EPOCHS = 100
@@ -230,7 +230,7 @@ print(
 )
 
 for epoch in range(EPOCHS):
-  # --- FASE DE ENTRENAMIENTO ---
+  # --- TRAINING PHASE ---
   model.train()
   train_loss = 0.0
   for batch_X, batch_y in train_loader:
@@ -247,7 +247,7 @@ for epoch in range(EPOCHS):
 
   avg_train_loss = train_loss / len(train_loader)
 
-  # --- FASE DE VALIDACIÓN ---
+  # --- VALIDATION PHASE ---
   model.eval()
   val_loss = 0.0
   with torch.no_grad():
@@ -259,15 +259,15 @@ for epoch in range(EPOCHS):
 
   avg_val_loss = val_loss / len(val_loader)
 
-  # Actualizar el Scheduler usando la PÉRDIDA DE VALIDACIÓN
+  # Update the Scheduler using the VALIDATION LOSS
   scheduler.step(avg_val_loss)
 
-  # Guardar solo el MEJOR modelo según la pérdida de validación
+  # Save only the BEST model according to the validation loss
   if avg_val_loss < best_val_loss:
     best_val_loss = avg_val_loss
     torch.save(model.state_dict(), PATH_PESOS_SALIDA)
 
-  # Imprimir progreso cada 5 épocas y mostrar el LR actual
+  # Print progress every 5 epochs and show the current LR
   if (epoch + 1) % 5 == 0 or epoch == 0:
     current_lr = optimizer.param_groups[0]['lr']
     print(

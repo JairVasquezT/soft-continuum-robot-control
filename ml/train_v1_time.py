@@ -16,17 +16,17 @@ parser.add_argument('--lr', type=float, default=0.0005)
 args = parser.parse_args()
 
 # ==========================================
-# 1. CONFIGURACIÓN Y CARGA DE DATOS (VERSION V1)
+# 1. CONFIGURATION AND DATA LOADING (VERSION V1)
 # ==========================================
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"🔥 Entrenando en el dispositivo: {device}")
 
-# Cargar el dataset v1 (X_raw: 4 motores + delta_t)
+# Load the v1 dataset (X_raw: 4 motors + delta_t)
 data_v1 = np.load('dataset_v01_real_sinRot_filt.npy', allow_pickle=True).item()
 X_raw = data_v1['X']  # shape: (N, 5)
 Y_raw = data_v1['Y']  # shape: (N, 3) -> rel_x, rel_y, rel_z
 
-# Cargar parámetros de normalización JSON corregidos
+# Load corrected JSON normalization parameters
 with open('dataset_v01_real_sinRot_filt_params.json', 'r') as f:
   norm_params = json.load(f)
 
@@ -35,14 +35,14 @@ Y_TRANS = norm_params['Y_transformer']
 
 
 # ==========================================
-# 2. VENTANADO CON SPLIT TRAIN/VAL REPARTIDO Y SIN FUGA
+# 2. WINDOWING WITH DISTRIBUTED, LEAK-FREE TRAIN/VAL SPLIT
 # ==========================================
-# La grabación se divide en N_BLOQUES contiguos a lo largo de TODA la
-# secuencia (no solo el tramo final); una fracción FRAC_VAL de esos
-# bloques, repartidos uniformemente, se reserva para validación. Cualquier
-# ventana cuyo rango de filas cruce el borde entre un bloque de train y uno
-# de val se descarta por completo, así ningún par comparte un solo paso
-# entre ambos conjuntos (misma estrategia que train_v8_time_100_2.py).
+# The recording is divided into N_BLOQUES contiguous blocks across the WHOLE
+# sequence (not just the final stretch); a fraction FRAC_VAL of those
+# blocks, uniformly distributed, is reserved for validation. Any
+# window whose row range crosses the border between a train block and a
+# val block is discarded entirely, so no pair shares a single step
+# between the two sets (same strategy as train_v8_time_100_2.py).
 FRAC_VAL = 0.10
 N_BLOQUES = 20
 
@@ -107,7 +107,7 @@ val_loader = DataLoader(
 
 
 # ==========================================
-# 3. FUNCIÓN DE PÉRDIDA FÍSICAMENTE INSPIRADA (PINN)
+# 3. PHYSICALLY INSPIRED LOSS FUNCTION (PINN)
 # ==========================================
 class RobotBlandoLoss(nn.Module):
 
@@ -122,13 +122,13 @@ class RobotBlandoLoss(nn.Module):
     super(RobotBlandoLoss, self).__init__()
     self.base_loss = nn.HuberLoss(
         delta=0.01
-    )  # Huber Loss para precisión sub-milimétrica
+    )  # Huber Loss for sub-millimeter precision
     self.w_pinn = w_pinn
     self.w_sph_max = w_sph_max
     self.w_sph_min = w_sph_min
     self.w_cyl_max = w_cyl_max
 
-    # Constantes de desescalado tomadas del JSON corregido
+    # Unscaling constants taken from the corrected JSON
     self.min_x, self.max_x = (
         y_params['rel_x']['min_t'],
         y_params['rel_x']['max_t'],
@@ -143,25 +143,25 @@ class RobotBlandoLoss(nn.Module):
     )
 
   def forward(self, y_pred, y_true):
-    # 1. Pérdida matemática base en espacio escalado [-1, 1]
+    # 1. Base mathematical loss in scaled space [-1, 1]
     loss_base = self.base_loss(y_pred, y_true)
 
-    # 2. Desescalar predicciones a coordenadas físicas (Metros)
+    # 2. Unscale predictions to physical coordinates (Meters)
     x_real = self.min_x + (y_pred[:, 0] + 1.0) * (self.max_x - self.min_x) / 2.0
     y_real = self.min_y + (y_pred[:, 1] + 1.0) * (self.max_y - self.min_y) / 2.0
     z_real = self.min_z + (y_pred[:, 2] + 1.0) * (self.max_z - self.min_z) / 2.0
 
-    # 3. Penalizaciones geométricas espacio 3D
+    # 3. 3D-space geometric penalties
     dist_esferica_cuadrada = x_real**2 + y_real**2 + z_real**2
     dist_cilindrica_cuadrada = x_real**2 + z_real**2
 
-    # A) Esfera Máxima (R = 0.335 m)
+    # A) Maximum Sphere (R = 0.335 m)
     pen_sph_max = torch.relu(dist_esferica_cuadrada - 0.335**2)
 
-    # B) Esfera Mínima (R = 0.22 m)
+    # B) Minimum Sphere (R = 0.22 m)
     pen_sph_min = torch.relu(0.22**2 - dist_esferica_cuadrada)
 
-    # C) Cilindro Máximo (R = 0.23 m)
+    # C) Maximum Cylinder (R = 0.23 m)
     pen_cyl_max = torch.relu(dist_cilindrica_cuadrada - 0.23**2)
 
     loss_pinn = (
@@ -177,7 +177,7 @@ criterion = RobotBlandoLoss(y_params=Y_TRANS, w_pinn=0.05)
 
 
 # ==========================================
-# 4. ARQUITECTURA LSTM
+# 4. LSTM ARCHITECTURE
 # ==========================================
 class SoftRobotLSTM(nn.Module):
 
@@ -210,14 +210,14 @@ model = SoftRobotLSTM(
     output_size=3, dropout=args.dropout,
 ).to(device)
 
-# Optimizador AdamW + LR Scheduler para romper mesetas
+# AdamW optimizer + LR Scheduler to break plateaus
 optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(
     optimizer, mode='min', factor=0.5, patience=8, min_lr=1e-6
 )
 
 # ==========================================
-# 5. BUCLE DE ENTRENAMIENTO Y VALIDACIÓN
+# 5. TRAINING AND VALIDATION LOOP
 # ==========================================
 PATH_PESOS_SALIDA = args.output
 EPOCHS = 100
@@ -245,7 +245,7 @@ for epoch in range(EPOCHS):
   avg_loss = epoch_loss / len(train_loader)
   history_loss.append(avg_loss)
 
-  # --- VALIDACIÓN ---
+  # --- VALIDATION ---
   model.eval()
   val_loss = 0.0
   with torch.no_grad():
@@ -256,7 +256,7 @@ for epoch in range(EPOCHS):
       val_loss += loss.item()
   avg_val_loss = val_loss / len(val_loader)
 
-  # Scheduler y checkpoint según la pérdida de VALIDACIÓN, no de train
+  # Scheduler and checkpoint based on the VALIDATION loss, not the train loss
   scheduler.step(avg_val_loss)
 
   if avg_val_loss < best_val_loss:

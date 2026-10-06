@@ -1,10 +1,10 @@
-"""Configuración del robot: IDs, límites y parámetros por defecto."""
+"""Robot configuration: IDs, limits and default parameters."""
 
-# IDs de los motores (ajusta según tu robot)
+# Motor IDs (adjust according to your robot)
 MOTOR_IDS = [1, 2, 3, 4]
 
 
-# Rango permitido alrededor de HOME para cada motor
+# Allowed range around HOME for each motor
 MOTOR_HOME_RANGES = {
     1: 550,
     2: 550,
@@ -12,7 +12,7 @@ MOTOR_HOME_RANGES = {
     4: 650,
 }
 
-# Posición home por motor (calibrada)
+# Home position per motor (calibrated)
 HOME_POSITION = {
     1: 1871,
     2: 1951,
@@ -20,7 +20,7 @@ HOME_POSITION = {
     4: 1712,
 }
 
-# Límites calculados desde HOME_POSITION usando el rango definido
+# Limits computed from HOME_POSITION using the defined range
 LIMITS = {
     mid: (
         max(HOME_POSITION[mid] - MOTOR_HOME_RANGES[mid], 0),
@@ -29,35 +29,35 @@ LIMITS = {
     for mid in MOTOR_IDS
 }
 
-# Función para generar 5 puntos por rango (mín, 3 intermedios, máx)
+# Function to generate 5 points per range (min, 3 intermediate, max)
 def generate_5_points(limit_tuple):
-    """Genera 5 puntos uniformemente distribuidos en un rango.
+    """Generates 5 uniformly distributed points over a range.
     
-    Ejemplo: (1550, 2500) -> [1550, 1787, 2025, 2262, 2500]
+    Example: (1550, 2500) -> [1550, 1787, 2025, 2262, 2500]
     """
     min_val, max_val = limit_tuple
     step = (max_val - min_val) / 4
     return [int(min_val + step * i) for i in range(5)]
 
-# Puntos de muestreo para OptiTrack (5 puntos por motor)
+# Sampling points for OptiTrack (5 points per motor)
 SAMPLING_POINTS = {
     motor_id: generate_5_points(LIMITS[motor_id])
     for motor_id in [1, 2, 3, 4]
 }
 
-# Ángulo (grados, plano XZ) de la dirección de tracción de cada motor --
-# usado por trajectories.py para estimar el empuje cartesiano neto de una
-# combinación de niveles y descartar combinaciones que se cancelan entre sí
-# (p.ej. dos motores enfrentados tirando con niveles opuestos).
+# Angle (degrees, XZ plane) of each motor's pulling direction --
+# used by trajectories.py to estimate the net Cartesian push of a
+# combination of levels and discard combinations that cancel each other out
+# (e.g. two opposing motors pulling with opposite levels).
 MOTOR_ANGULOS_TRACCION = {1: 0, 2: 90, 3: 30, 4: 120}
 
-# Rango MÁS ANCHO que MOTOR_HOME_RANGES/LIMITS, usado SOLO como límite de
-# recorte (clip) para la micro-exploración local alrededor de un punto
-# principal ya alcanzado (candidatos_exploracion_local en trajectories.py)
-# -- la grilla de puntos principales en sí sigue generándose sobre LIMITS,
-# sin cambios. Coincide con RANGOS_MANUALES que ya usa el pipeline de ML
-# (dataset_pred_filt.py), para no clipear a 0 efecto una exploración que
-# cae cerca del borde de la grilla original.
+# WIDER range than MOTOR_HOME_RANGES/LIMITS, used ONLY as the clip
+# limit for the local micro-exploration around an already reached
+# main point (candidatos_exploracion_local in trajectories.py)
+# -- the grid of main points itself is still generated over LIMITS,
+# unchanged. It matches RANGOS_MANUALES already used by the ML pipeline
+# (dataset_pred_filt.py), so as not to clip to zero effect an exploration that
+# falls near the edge of the original grid.
 MOTOR_EXPLORATION_RANGES = {1: 650, 2: 650, 3: 750, 4: 750}
 LIMITS_EXPLORACION = {
     mid: (
@@ -68,21 +68,21 @@ LIMITS_EXPLORACION = {
 }
 
 
-# Velocidad por defecto
+# Default speed
 DEFAULT_SPEED = 30
 
-# Dynamixel SDK / puerto serial (ajusta a tu sistema)
+# Dynamixel SDK / serial port (adjust to your system)
 SERIAL_PORT = 'COM3'
 BAUDRATE = 2000000
 
-# Direcciones de registro para Dynamixel MX (protocolo 1.0)
+# Register addresses for Dynamixel MX (protocol 1.0)
 ADDR_MX_TORQUE_ENABLE = 24
 ADDR_MX_GOAL_POSITION = 30
 ADDR_MX_MOVING_SPEED = 32
 ADDR_MX_PRESENT_POSITION = 36
 ADDR_MX_PRESENT_LOAD = 40
 
-# Compatibilidad: nombres genéricos usados por el código
+# Compatibility: generic names used by the code
 ADDR_GOAL_POSITION = ADDR_MX_GOAL_POSITION
 ADDR_MOVING_SPEED = ADDR_MX_MOVING_SPEED
 ADDR_PRESENT_POSITION = ADDR_MX_PRESENT_POSITION
@@ -90,7 +90,7 @@ ADDR_PRESENT_LOAD = ADDR_MX_PRESENT_LOAD
 
 PROTOCOL_VERSION = 1.0
 
-# Constantes adicionales sugeridas por usuario
+# Additional constants suggested by the user
 TORQUE_ENABLE = 1
 TORQUE_DISABLE = 0
 DXL_MAXIMUM_POSITION_VALUE = 4095
@@ -101,13 +101,13 @@ MAX_SPEED = 40
 SAMPLING_INTERVAL = 0.01666
 
 # ============ OPTITRACK / NATNET ============
-# Configuración para Motive 2.2.0 (Misma PC vía Loopback)
-OPTITRACK_HOST = '192.168.1.178'   # 🎯 CAMBIADO: '127.0.0.1' es la IP exacta para "loopback"
-OPTITRACK_PORT = 1510          # Puerto NatNet de datos por defecto (Motive usa 1510)
-OPTITRACK_COMMAND_PORT = 1511  # Puerto NatNet de comandos por defecto
-OPTITRACK_SAMPLING_RATE = 60   # 🎯 Ajustado a 60Hz (la frecuencia de muestreo que quieres)
-USE_MULTICAST = False          # 🎯 Forzamos Unicast por defecto en tu configuración
+# Configuration for Motive 2.2.0 (Same PC via Loopback)
+OPTITRACK_HOST = '192.168.1.178'   # 🎯 CHANGED: '127.0.0.1' is the exact IP for "loopback"
+OPTITRACK_PORT = 1510          # Default NatNet data port (Motive uses 1510)
+OPTITRACK_COMMAND_PORT = 1511  # Default NatNet command port
+OPTITRACK_SAMPLING_RATE = 60   # 🎯 Adjusted to 60Hz (the sampling rate you want)
+USE_MULTICAST = False          # 🎯 We force Unicast by default in your configuration
 
-# Frecuencia de sincronización para grabar datos alineados
+# Synchronization frequency for recording aligned data
 SYNC_SAMPLING_RATE = 60
 

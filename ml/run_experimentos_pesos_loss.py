@@ -1,20 +1,20 @@
-"""Barrido de 16 combinaciones (2^4) de ganancias de PINNLossMPC para
-train_pred.py, una tras otra. Corre cada combinación con menos épocas que
-un entrenamiento completo (para que el barrido entero sea viable), guarda
-un checkpoint y un log por combinación, y al final imprime un resumen
-ordenado por 'Mejor Val MSE' para elegir la mejor combinación antes de
-hacer el entrenamiento completo (100 épocas) con esa.
+"""Sweep of 16 combinations (2^4) of PINNLossMPC gains for
+train_pred.py, one after another. Runs each combination with fewer epochs than
+a full training run (so that the whole sweep is feasible), saves
+a checkpoint and a log per combination, and at the end prints a summary
+sorted by 'Mejor Val MSE' to choose the best combination before
+doing the full training run (100 epochs) with it.
 
-4 factores binarios (2x2x2x2 = 16 combinaciones):
-  A) w_direction_3d: {0.0 (apagado), 30.0 (encendido)} -- la pérdida de
-     dirección/incremental en 3D completo (X, Y, Z).
-  B) pesos_ejes_mse: {(1,1,1) uniforme -- "posición relativa a la base nada
-     más", (1.5,1.0,2.2) ponderado priorizando X/Z}.
-  C) w_speed + w_smooth: {(0,0) apagado, (5.0,2.0) encendido} -- la otra
-     pareja de términos "incrementales" (velocidad máxima por paso + jerk).
+4 binary factors (2x2x2x2 = 16 combinations):
+  A) w_direction_3d: {0.0 (off), 30.0 (on)} -- the
+     direction/incremental loss in full 3D (X, Y, Z).
+  B) pesos_ejes_mse: {(1,1,1) uniform -- "position relative to the base
+     only", (1.5,1.0,2.2) weighted prioritizing X/Z}.
+  C) w_speed + w_smooth: {(0,0) off, (5.0,2.0) on} -- the other
+     pair of "incremental" terms (maximum speed per step + jerk).
   D) w_mse: {50.0, 100.0}.
 
-Uso:
+Usage:
   python run_experimentos_pesos_loss.py
   python run_experimentos_pesos_loss.py --epochs 30
   python run_experimentos_pesos_loss.py --resume_from c09
@@ -32,7 +32,7 @@ BASE_DIR = Path(__file__).resolve().parent
 LOG_DIR = BASE_DIR / 'logs_experimentos_pesos_loss'
 LOG_DIR.mkdir(exist_ok=True)
 
-# Mismo problema de emojis en pipe que en run_experimentos_ventana.py -- forzar UTF-8.
+# Same emoji-in-pipe problem as in run_experimentos_ventana.py -- force UTF-8.
 ENV_SUBPROCESO = os.environ.copy()
 ENV_SUBPROCESO['PYTHONIOENCODING'] = 'utf-8'
 ENV_SUBPROCESO['PYTHONUTF8'] = '1'
@@ -107,13 +107,13 @@ def ejecutar(tarea, epochs):
     fin = datetime.now()
     log_file.write(f"\nFin: {fin} | Duración: {fin - inicio} | Código salida: {codigo_salida}\n")
 
-  # El código de salida NO es un criterio confiable acá: PyTorch+CUDA en
-  # Windows suele terminar el proceso con STATUS_ACCESS_VIOLATION
-  # (0xC0000005 = 3221226505) durante la limpieza del contexto CUDA al
-  # salir, AUNQUE el entrenamiento haya completado y guardado bien el
-  # checkpoint -- por eso el criterio real de éxito es si se pudo parsear
-  # 'Mejor Val MSE' del log (que solo se imprime tras terminar el loop
-  # completo de épocas sin excepciones).
+  # The exit code is NOT a reliable criterion here: PyTorch+CUDA on
+  # Windows often ends the process with STATUS_ACCESS_VIOLATION
+  # (0xC0000005 = 3221226505) during CUDA context cleanup on
+  # exit, EVEN IF training completed and saved the
+  # checkpoint properly -- so the real success criterion is whether
+  # 'Mejor Val MSE' could be parsed from the log (which is only printed after the
+  # full epoch loop finishes without exceptions).
   ok = best_val_mse is not None
   if ok and codigo_salida != 0:
     print(f'✅ {etiqueta} completado (código de salida {codigo_salida} tras el cierre de CUDA, '

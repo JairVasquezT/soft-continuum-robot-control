@@ -11,7 +11,7 @@ class MiClienteOptiTrack:
         self.streaming_client.set_use_multicast(multicast)
         
     def start(self, rigid_body_callback):
-        # 🎯 Vinculamos el callback que vendrá desde tu MAIN
+        # 🎯 We bind the callback that will come from your MAIN
         self.streaming_client.rigid_body_listener = rigid_body_callback
         is_running = self.streaming_client.run()
         if not is_running or not self.streaming_client.connected():

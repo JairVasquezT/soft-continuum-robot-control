@@ -1,12 +1,12 @@
-"""Script principal: genera combinaciones y mueve los motores Dynamixel guardando a alta frecuencia (OptiTrack Hz).
+"""Main script: generates combinations and moves the Dynamixel motors, logging at high frequency (OptiTrack Hz).
 
-Uso: ejecutar `python -m continuum_robot.main --no-simulate` desde la carpeta del proyecto.
+Usage: run `python -m continuum_robot.main --no-simulate` from the project folder.
 """
 import os
 import sys
 
-# Permitir ejecutar `python continuum_robot/main.py` directamente añadiendo
-# la carpeta raíz del proyecto al sys.path cuando el paquete no esté en PATH.
+# Allow running `python continuum_robot/main.py` directly by adding
+# the project root folder to sys.path when the package is not on PATH.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
@@ -32,15 +32,15 @@ from continuum_robot.utils.calibration_sequential import (
 )
 from continuum_robot.hardware.galga import PhidgetForceController
 
-# 🎯 CLIENTE OFICIAL NATNET
+# 🎯 OFFICIAL NATNET CLIENT
 from NatNetClient import NatNetClient
 
 # ==============================================================================
-# 🎯 CONFIGURACIÓN DE FRECUENCIA UNIFICADA PARA EL EXPERIMENTO
+# 🎯 UNIFIED FREQUENCY CONFIGURATION FOR THE EXPERIMENT
 # ==============================================================================
 FRECUENCIA_LOG = 60  # Hz
 LOG_INTERVAL = 1.0 / FRECUENCIA_LOG
-MOVE_TIMEOUT = 6.5  # Tiempo máximo de espera por instrucción (segundos)
+MOVE_TIMEOUT = 6.5  # Maximum wait time per instruction (seconds)
 
 combo_actual_idx = 0
 posiciones_objetivo_actuales = [0.0] * len(cfg.MOTOR_IDS)
@@ -48,10 +48,10 @@ controlador_dynamixel = None
 logger_alta_frecuencia = None
 time_start = 0.0
 
-# 🔒 CERROJO DE HARDWARE: Protege el bus de datos serial
+# 🔒 HARDWARE LOCK: Protects the serial data bus
 hardware_lock = threading.Lock()
 
-# 🚀 VARIABLES DE LOS CUERPOS RÍGIDOS (OPTITRACK)
+# 🚀 RIGID BODY VARIABLES (OPTITRACK)
 ultima_pos_base = [0.0, 0.0, 0.0]
 ultima_rot_base = [0.0, 0.0, 0.0, 1.0]
 ultima_pos_efector = [0.0, 0.0, 0.0]
@@ -62,15 +62,15 @@ ultimos_torques_validos = [0] * len(cfg.MOTOR_IDS)
 ultimas_fuerzas_validas = [0.0] * 4
 ultima_lectura_valida = 0
 
-# 🔄 PATRÓN PRODUCTOR-CONSUMIDOR
-log_queue = queue.Queue(maxsize=0)  # Cola thread-safe para log rows
+# 🔄 PRODUCER-CONSUMER PATTERN
+log_queue = queue.Queue(maxsize=0)  # Thread-safe queue for log rows
 consumer_running = False
 sampler_running = False
 controlador_phidget = None
 
 
 def receive_rigid_body_frame(new_id, position, rotation):
-    """PRODUCTOR: Recibe frames de OptiTrack."""
+    """PRODUCER: Receives frames from OptiTrack."""
     global ultima_pos_base, ultima_rot_base, ultima_pos_efector, ultima_rot_efector
     
     if new_id == 1:
@@ -82,7 +82,7 @@ def receive_rigid_body_frame(new_id, position, rotation):
 
 
 def data_sampler_thread(freq_hz=60):
-    """Hilo con reloj estricto a 60Hz. Lee Motores (Pos+Torque) + Phidget + OptiTrack."""
+    """Thread with a strict 60Hz clock. Reads Motors (Pos+Torque) + Phidget + OptiTrack."""
     global sampler_running, ultimas_posiciones_validas, ultimos_torques_validos, ultimas_fuerzas_validas, ultima_lectura_valida
     global combo_actual_idx, posiciones_objetivo_actuales, controlador_dynamixel, controlador_phidget, time_start, log_queue
 
@@ -92,14 +92,14 @@ def data_sampler_thread(freq_hz=60):
         t_loop_start = time.time()
         t_relativo = t_loop_start - time_start
 
-        # 1. Lectura de Motores Dynamixel (Posición y Torque/Corriente)
+        # 1. Dynamixel Motors reading (Position and Torque/Current)
         if controlador_dynamixel is not None:
             with hardware_lock:
                 try:
-                    # Usar el nuevo método definido en dynamixel.py
+                    # Use the new method defined in dynamixel.py
                     posiciones_reales, torques_reales, lectura_valida = controlador_dynamixel.sync_get_present_position_and_load(cfg.MOTOR_IDS)
                 except Exception as e:
-                    # Imprimir el error si vuelve a fallar en lugar de ocultarlo silenciosamente
+                    # Print the error if it fails again instead of silently hiding it
                     print(f"⚠️ Error leyendo Dynamixel: {e}")
                     posiciones_reales = list(ultimas_posiciones_validas)
                     torques_reales = list(ultimos_torques_validos)
@@ -116,7 +116,7 @@ def data_sampler_thread(freq_hz=60):
         else:
             ultima_lectura_valida = 0
 
-        # 2. Lectura del Sensor Phidget (4 celdas de carga)
+        # 2. Phidget Sensor reading (4 load cells)
         if controlador_phidget is not None:
             try:
                 fuerzas_g = controlador_phidget.leer_fuerzas_gramos()
@@ -126,15 +126,15 @@ def data_sampler_thread(freq_hz=60):
         else:
             fuerzas_g = list(ultimas_fuerzas_validas)
 
-        # 3. Empaquetar fila extendida para el CSV
+        # 3. Pack extended row for the CSV
         log_row = (
             [t_loop_start, t_relativo, combo_actual_idx, lectura_valida]
-            + posiciones_objetivo_actuales           # 4 Metas
-            + posiciones_reales                      # 4 Posiciones reales
-            + torques_reales                         # 4 Torques/Corrientes reales
-            + fuerzas_g                              # 4 Celdas de carga (gramos)
-            + list(ultima_pos_base) + list(ultima_rot_base)     # Base OptiTrack (7)
-            + list(ultima_pos_efector) + list(ultima_rot_efector) # Efector OptiTrack (7)
+            + posiciones_objetivo_actuales           # 4 Targets
+            + posiciones_reales                      # 4 Real positions
+            + torques_reales                         # 4 Real Torques/Currents
+            + fuerzas_g                              # 4 Load cells (grams)
+            + list(ultima_pos_base) + list(ultima_rot_base)     # OptiTrack Base (7)
+            + list(ultima_pos_efector) + list(ultima_rot_efector) # OptiTrack End effector (7)
         )
 
         try:
@@ -142,7 +142,7 @@ def data_sampler_thread(freq_hz=60):
         except queue.Full:
             pass
 
-        # 4. Control del periodo de muestreo a 60 Hz
+        # 4. Sampling period control at 60 Hz
         t_ejecucion = time.time() - t_loop_start
         tiempo_espera = intervalo - t_ejecucion
         if tiempo_espera > 0:
@@ -150,7 +150,7 @@ def data_sampler_thread(freq_hz=60):
 
 
 def log_consumer_thread():
-    """CONSUMIDOR: Lee de la cola y escribe al CSV en un hilo separado."""
+    """CONSUMER: Reads from the queue and writes to the CSV in a separate thread."""
     global logger_alta_frecuencia, log_queue, consumer_running
     
     while consumer_running:
@@ -185,7 +185,7 @@ def run_sequence(simulate: bool = True, delay: float = 0.1, dynamic_torque: bool
     ids = cfg.MOTOR_IDS
     time_start = time.time()
 
-    # Iniciar Consumidor de CSV
+    # Start CSV Consumer
     consumer_running = True
     consumer_thread_obj = threading.Thread(target=log_consumer_thread, daemon=True)
     consumer_thread_obj.start()
@@ -194,14 +194,14 @@ def run_sequence(simulate: bool = True, delay: float = 0.1, dynamic_torque: bool
 
     try:
         if not simulate:
-            # 1. Conexión a OptiTrack (NatNet)
+            # 1. OptiTrack (NatNet) connection
             streaming_client = NatNetClient()
             streaming_client.set_client_address(cfg.OPTITRACK_HOST)
             streaming_client.set_server_address(cfg.OPTITRACK_HOST)
             streaming_client.rigid_body_listener = receive_rigid_body_frame
             streaming_client.run()
 
-            # 2. Inicialización del Sensor PhidgetBridge (4 celdas de fuerza)
+            # 2. PhidgetBridge Sensor initialization (4 force cells)
             try:
                 controlador_phidget = PhidgetForceController()
                 print("✓ PhidgetBridge (4 celdas) inicializado correctamente.")
@@ -209,20 +209,20 @@ def run_sequence(simulate: bool = True, delay: float = 0.1, dynamic_torque: bool
                 print(f"⚠️ No se pudo inicializar Phidget: {e}")
                 controlador_phidget = None
 
-            # 3. Escaneo y habilitación de Torque en Dynamixel
+            # 3. Dynamixel scan and Torque enabling
             if hasattr(controlador_dynamixel, 'scan'):
                 with hardware_lock:
                     found = controlador_dynamixel.scan(ids)
                     if found and hasattr(controlador_dynamixel, 'enable_torque'):
                         controlador_dynamixel.enable_torque(found)
 
-        # Iniciar Muestreador a 60 Hz
+        # Start 60 Hz Sampler
         sampler_running = True
         sampler_thread_obj = threading.Thread(target=data_sampler_thread, args=(60,), daemon=True)
         sampler_thread_obj.start()
         print("✓ Hilos de muestreo a 60 Hz y guardado iniciados correctamente.")
 
-        # Esperar hasta tener una señal válida o 1.5 segundos de arranque
+        # Wait until a valid signal is available or 1.5 seconds of startup
         start_wait = time.time()
         while time.time() - start_wait < 1.5:
             if ultima_lectura_valida == 1:
@@ -239,22 +239,22 @@ def run_sequence(simulate: bool = True, delay: float = 0.1, dynamic_torque: bool
         for i, combo in enumerate(combos, 1):
             positions = [combo[mid] for mid in ids]
 
-            # Antes de mandar el primer objetivo, dejar los logs en punto 0
+            # Before sending the first target, leave the logs at point 0
             if i == 1:
                 combo_actual_idx = 0
                 posiciones_objetivo_actuales = [0.0] * len(cfg.MOTOR_IDS)
                 print("✓ Iniciando secuencia: punto actual 0 sin movimiento de objetivo.")
 
-            # Enviar orden de movimiento al robot
+            # Send movement command to the robot
             with hardware_lock:
                 controlador_dynamixel.move(ids, positions, speed=cfg.DEFAULT_SPEED, wait_for_reached=False)
 
-            # Actualizar el punto real después de enviar el comando
+            # Update the real point after sending the command
             combo_actual_idx = i
             posiciones_objetivo_actuales = positions
 
-            # ⏱️ ESPERA INTELIGENTE: Consulta estado en memoria a ~60Hz
-            # Historial de últimas lecturas para detectar ausencia de cambio
+            # ⏱️ SMART WAIT: Queries in-memory state at ~60Hz
+            # History of latest readings to detect absence of change
             pos_history = deque(maxlen=40)
 
             llegado = False
@@ -264,11 +264,11 @@ def run_sequence(simulate: bool = True, delay: float = 0.1, dynamic_torque: bool
                 time.sleep(0.016)
 
                 pos_actuales = list(ultimas_posiciones_validas)
-                # Registrar en historial y detectar si en las últimas 40 lecturas no hubo cambio
+                # Record in history and detect whether there was no change in the last 40 readings
                 try:
                     pos_history.append(tuple(pos_actuales))
                 except Exception:
-                    # Si hay datos inválidos, continuar sin añadir
+                    # If there is invalid data, continue without adding
                     pass
 
                 if len(pos_history) == pos_history.maxlen:
@@ -286,15 +286,15 @@ def run_sequence(simulate: bool = True, delay: float = 0.1, dynamic_torque: bool
             time.sleep(delay)
 
     finally:
-        # Detener hilos de muestreo y escritura en CSV
+        # Stop sampling and CSV writing threads
         sampler_running = False
         consumer_running = False
         
-        # Desconectar OptiTrack
+        # Disconnect OptiTrack
         if streaming_client:
             streaming_client.shutdown()
         
-        # Desconectar Phidget
+        # Disconnect Phidget
         if controlador_phidget:
             try:
                 controlador_phidget.close()
@@ -302,7 +302,7 @@ def run_sequence(simulate: bool = True, delay: float = 0.1, dynamic_torque: bool
             except Exception as e:
                 print(f"⚠️ Error al cerrar Phidget: {e}")
 
-        # Desconectar Motores Dynamixel
+        # Disconnect Dynamixel Motors
         if controlador_dynamixel:
             with hardware_lock:
                 controlador_dynamixel.close()
@@ -318,26 +318,26 @@ def run_trayectoria_final(
     segundos_punto_base: float = None,
     muestras_ventana_plateau: int = None,
 ):
-    """Modo aparte de run_sequence()/--points 3-5: recorre la secuencia de
-    "puntos principales" de generar_puntos_principales() (grilla desplazada
-    + orden por vecino más cercano) y, en cada uno, hace una
-    micro-exploración local de ~20 candidatos (candidatos_exploracion_local)
-    antes de pasar al siguiente punto.
+    """Separate mode from run_sequence()/--points 3-5: walks through the sequence of
+    "main points" from generar_puntos_principales() (shifted grid
+    + nearest-neighbor ordering) and, at each one, performs a
+    local micro-exploration of ~20 candidates (candidatos_exploracion_local)
+    before moving on to the next point.
 
-    `niveles=5` (default): 604 puntos (filtrados por extremo/empuje neto),
-    arranca cerca del centro, espera hasta 0.5s por punto (o antes si no hay
-    cambios en las últimas 30 lecturas -- a 60Hz eso ya son 0.5s, así que
-    ambos criterios coinciden en la práctica).
-    `niveles=3`: 81 puntos (SIN filtrar, se quedan todos), arranca lejos del
-    centro (orden de recorrido distinto al de los 604), espera hasta 0.8s
-    por punto (o antes si no hay cambios en las últimas 40 lecturas, ~0.67s
-    a 60Hz -- acá el corte por plateau normalmente llega antes que el tope
-    de 0.8s, a diferencia del caso de 5 niveles).
-    `segundos_punto_base`/`muestras_ventana_plateau` fuerzan esos valores
-    manualmente si no querés los defaults de arriba según `niveles`.
+    `niveles=5` (default): 604 points (filtered by extreme/net push),
+    starts near the center, waits up to 0.5s per point (or earlier if there are no
+    changes in the last 30 readings -- at 60Hz that is already 0.5s, so
+    both criteria coincide in practice).
+    `niveles=3`: 81 points (NOT filtered, all are kept), starts far from the
+    center (different traversal order from the 604), waits up to 0.8s
+    per point (or earlier if there are no changes in the last 40 readings, ~0.67s
+    at 60Hz -- here the plateau cutoff normally arrives before the 0.8s
+    cap, unlike the 5-level case).
+    `segundos_punto_base`/`muestras_ventana_plateau` force those values
+    manually if you do not want the defaults above according to `niveles`.
 
-    Cada candidato de exploración se sostiene `segundos_candidato` fijos
-    (0.25s por defecto = 15 pasos a 60Hz), sin verificar llegada.
+    Each exploration candidate is held for a fixed `segundos_candidato`
+    (0.25s by default = 15 steps at 60Hz), without checking arrival.
     """
     global combo_actual_idx, posiciones_objetivo_actuales, controlador_dynamixel, logger_alta_frecuencia, time_start
     global consumer_running, sampler_running, log_queue, controlador_phidget
@@ -372,21 +372,21 @@ def run_trayectoria_final(
     ids = cfg.MOTOR_IDS
     time_start = time.time()
 
-    # Iniciar Consumidor de CSV
+    # Start CSV Consumer
     consumer_running = True
     consumer_thread_obj = threading.Thread(target=log_consumer_thread, daemon=True)
     consumer_thread_obj.start()
 
     try:
         if not simulate:
-            # 1. Conexión a OptiTrack (NatNet)
+            # 1. OptiTrack (NatNet) connection
             streaming_client = NatNetClient()
             streaming_client.set_client_address(cfg.OPTITRACK_HOST)
             streaming_client.set_server_address(cfg.OPTITRACK_HOST)
             streaming_client.rigid_body_listener = receive_rigid_body_frame
             streaming_client.run()
 
-            # 2. Inicialización del Sensor PhidgetBridge (4 celdas de fuerza)
+            # 2. PhidgetBridge Sensor initialization (4 force cells)
             try:
                 controlador_phidget = PhidgetForceController()
                 print("✓ PhidgetBridge (4 celdas) inicializado correctamente.")
@@ -394,20 +394,20 @@ def run_trayectoria_final(
                 print(f"⚠️ No se pudo inicializar Phidget: {e}")
                 controlador_phidget = None
 
-            # 3. Escaneo y habilitación de Torque en Dynamixel
+            # 3. Dynamixel scan and Torque enabling
             if hasattr(controlador_dynamixel, 'scan'):
                 with hardware_lock:
                     found = controlador_dynamixel.scan(ids)
                     if found and hasattr(controlador_dynamixel, 'enable_torque'):
                         controlador_dynamixel.enable_torque(found)
 
-        # Iniciar Muestreador a 60 Hz
+        # Start 60 Hz Sampler
         sampler_running = True
         sampler_thread_obj = threading.Thread(target=data_sampler_thread, args=(60,), daemon=True)
         sampler_thread_obj.start()
         print("✓ Hilos de muestreo a 60 Hz y guardado iniciados correctamente.")
 
-        # Esperar hasta tener una señal válida o 1.5 segundos de arranque
+        # Wait until a valid signal is available or 1.5 seconds of startup
         start_wait = time.time()
         while time.time() - start_wait < 1.5:
             if ultima_lectura_valida == 1:
@@ -438,13 +438,13 @@ def run_trayectoria_final(
         for i, punto in enumerate(puntos_principales, 1):
             positions = [punto[mid] for mid in ids]
 
-            # Antes de mandar el primer objetivo, dejar los logs en punto 0
+            # Before sending the first target, leave the logs at point 0
             if i == 1:
                 combo_actual_idx = 0
                 posiciones_objetivo_actuales = [0.0] * len(cfg.MOTOR_IDS)
                 print("✓ Iniciando secuencia: punto actual 0 sin movimiento de objetivo.")
 
-            # Enviar orden de movimiento al punto principal
+            # Send movement command to the main point
             with hardware_lock:
                 controlador_dynamixel.move(ids, positions, speed=cfg.DEFAULT_SPEED, wait_for_reached=False)
 
@@ -452,10 +452,10 @@ def run_trayectoria_final(
             combo_actual_idx = combo_idx_global
             posiciones_objetivo_actuales = positions
 
-            # ⏱️ ESPERA ACOTADA AL PUNTO BASE: hasta segundos_punto_base,
-            # cortando antes si no hay cambios en las últimas
-            # muestras_ventana_plateau lecturas o si ya llegó al objetivo
-            # (mismo patrón que run_sequence, con tope y ventana más chicos).
+            # ⏱️ WAIT BOUNDED TO THE BASE POINT: up to segundos_punto_base,
+            # cutting short if there are no changes in the last
+            # muestras_ventana_plateau readings or if the target has already been reached
+            # (same pattern as run_sequence, with a smaller cap and window).
             pos_history = deque(maxlen=muestras_ventana_plateau)
             llegado = False
             timeout_start = time.time()
@@ -480,9 +480,9 @@ def run_trayectoria_final(
                     if cerca:
                         llegado = True
 
-            # 🔬 EXPLORACIÓN LOCAL: ~20 candidatos alrededor del punto
-            # principal, cada uno sostenido segundos_candidato fijos (sin
-            # verificar llegada).
+            # 🔬 LOCAL EXPLORATION: ~20 candidates around the main
+            # point, each held for a fixed segundos_candidato (without
+            # checking arrival).
             candidatos = candidatos_exploracion_local(
                 punto, offset=offset_exploracion, n_mixtas=n_mixtas_exploracion,
             )
@@ -501,15 +501,15 @@ def run_trayectoria_final(
             time.sleep(delay)
 
     finally:
-        # Detener hilos de muestreo y escritura en CSV
+        # Stop sampling and CSV writing threads
         sampler_running = False
         consumer_running = False
 
-        # Desconectar OptiTrack
+        # Disconnect OptiTrack
         if streaming_client:
             streaming_client.shutdown()
 
-        # Desconectar Phidget
+        # Disconnect Phidget
         if controlador_phidget:
             try:
                 controlador_phidget.close()
@@ -517,7 +517,7 @@ def run_trayectoria_final(
             except Exception as e:
                 print(f"⚠️ Error al cerrar Phidget: {e}")
 
-        # Desconectar Motores Dynamixel
+        # Disconnect Dynamixel Motors
         if controlador_dynamixel:
             with hardware_lock:
                 controlador_dynamixel.close()

@@ -8,11 +8,11 @@ import json
 from scipy.spatial.transform import Rotation as R
 
 # =====================================================================
-# 1. PANEL DE CONTROL
+# 1. CONTROL PANEL
 # =====================================================================
-VERSION_MODELO = "v1"       # Opciones: "v1", "v2", "v3", "v4"
-WINDOW_SIZE = 90            # Ventana temporal
-BATCH_SIZE_EVAL = 512       # 💡 Lote de evaluación para evitar el CUDA OOM
+VERSION_MODELO = "v1"       # Options: "v1", "v2", "v3", "v4"
+WINDOW_SIZE = 90            # Temporal window
+BATCH_SIZE_EVAL = 512       # 💡 Evaluation batch to avoid CUDA OOM
 
 PATH_CSV = "corto_20260730_164214_477.csv"
 PATH_PESOS = "soft_robot_lstm_v1_15_time.pth" 
@@ -30,7 +30,7 @@ config_arquitectura = {
 cfg = config_arquitectura[VERSION_MODELO]
 
 # =====================================================================
-# 2. CARGA DE PARÁMETROS MAESTROS DESDE EL JSON
+# 2. LOADING MASTER PARAMETERS FROM THE JSON
 # =====================================================================
 with open(PATH_JSON, 'r') as f:
     norm_params = json.load(f)
@@ -38,7 +38,7 @@ with open(PATH_JSON, 'r') as f:
 home = norm_params["home_motores"]
 
 # =====================================================================
-# 3. PROCESAMIENTO MECÁNICO Y GEOMÉTRICO
+# 3. MECHANICAL AND GEOMETRIC PROCESSING
 # =====================================================================
 print(f"📖 Leyendo archivo de telemetría original: {PATH_CSV}")
 
@@ -83,16 +83,16 @@ columnas_validas = [
 df = pd.read_csv(PATH_CSV, names=columnas_validas, header=0)
 df.columns = df.columns.str.strip()
 
-# Diferencial de tiempo dt
+# Time differential dt
 df['delta_t'] = df['t_relativo'].astype(float).diff().bfill()
 df = df.iloc[1:].reset_index(drop=True)
 
-# Deltas de motores
+# Motor deltas
 for i in range(1, 5):
     df[f'delta_real_m{i}'] = df[f'real_m{i}'].astype(float) - home[f'm{i}']
     df[f'delta_meta_m{i}'] = df[f'meta_m{i}'].astype(float) - home[f'm{i}']
 
-# Transformación de Coordenadas de OptiTrack
+# OptiTrack Coordinate Transformation
 p_base = df[['base_x', 'base_y', 'base_z']].astype(float).values
 p_efector = df[['efector_x', 'efector_y', 'efector_z']].astype(float).values
 
@@ -107,7 +107,7 @@ df['rel_x'], df['rel_y'], df['rel_z'] = p_relativo[:, 0], p_relativo[:, 1], p_re
 df['rel_qx'], df['rel_qy'], df['rel_qz'], df['rel_qw'] = q_relativo[:, 0], q_relativo[:, 1], q_relativo[:, 2], q_relativo[:, 3]
 
 # =====================================================================
-# 4. NORMALIZACIÓN [-1, 1]
+# 4. NORMALIZATION [-1, 1]
 # =====================================================================
 x_keys = list(norm_params['X_transformer'].keys())
 y_keys = cfg['y_keys']
@@ -127,7 +127,7 @@ X_scaled = normalizar_con_limites_json(X_raw_matrix, norm_params['X_transformer'
 Y_scaled = normalizar_con_limites_json(Y_raw_matrix, norm_params['Y_transformer'], y_keys)
 
 # =====================================================================
-# 5. CREACIÓN DE VENTANAS TEMPORALES
+# 5. CREATION OF TEMPORAL WINDOWS
 # =====================================================================
 X_seq, Y_seq = [], []
 for i in range(len(X_scaled) - WINDOW_SIZE):
@@ -137,12 +137,12 @@ for i in range(len(X_scaled) - WINDOW_SIZE):
 X_tensor = torch.tensor(np.array(X_seq), dtype=torch.float32)
 Y_tensor = torch.tensor(np.array(Y_seq), dtype=torch.float32)
 
-# 💡 USO DE DATALOADER EN CPU/GPU PARA EVITAR EXPLOSIÓN DE MEMORIA
+# 💡 USE OF DATALOADER ON CPU/GPU TO AVOID MEMORY BLOW-UP
 eval_dataset = TensorDataset(X_tensor, Y_tensor)
 eval_loader = DataLoader(eval_dataset, batch_size=BATCH_SIZE_EVAL, shuffle=False)
 
 # =====================================================================
-# 6. ARQUITECTURA DE LA RED
+# 6. NETWORK ARCHITECTURE
 # =====================================================================
 class SoftRobotLSTM(nn.Module):
     def __init__(self, input_size, hidden_size=128, num_layers=2, output_size=3, dropout=0.0):
@@ -154,7 +154,7 @@ class SoftRobotLSTM(nn.Module):
         self.fc = nn.Linear(hidden_size, output_size)
         
     def forward(self, x):
-        out, _ = self.lstm(x)  # PyTorch inicializa los estados h0, c0 en 0 automáticamente
+        out, _ = self.lstm(x)  # PyTorch initializes the h0, c0 states to 0 automatically
         last_step = out[:, -1, :]
         out_regularized = self.dropout(last_step)
         return self.fc(out_regularized)
@@ -164,7 +164,7 @@ model.load_state_dict(torch.load(PATH_PESOS, map_location=device))
 model.eval()
 
 # =====================================================================
-# 7. INFERENCIA EN MINI-BATCHES (PROTEGIDO CONTRA OOM)
+# 7. INFERENCE IN MINI-BATCHES (PROTECTED AGAINST OOM)
 # =====================================================================
 preds_list = []
 real_list = []
@@ -199,7 +199,7 @@ Y_real_mm = Y_real_phys[:, :3] * 1000.0
 Y_pred_mm = Y_pred_phys[:, :3] * 1000.0
 
 # =====================================================================
-# 8. CÁLCULO DE MÉTRICAS DE ERROR
+# 8. COMPUTATION OF ERROR METRICS
 # =====================================================================
 mae_ejes = np.mean(np.abs(Y_real_mm - Y_pred_mm), axis=0)
 error_euclidiano_3d = np.sqrt(np.sum((Y_real_mm - Y_pred_mm)**2, axis=1))
@@ -215,7 +215,7 @@ print(f"📐 ERROR DE DISTANCIA EUCLÍDEA 3D PROMEDIO: {mae_3d_promedio:.3f} mm"
 print("=======================================================\n")
 
 # =====================================================================
-# 9. GRÁFICOS
+# 9. PLOTS
 # =====================================================================
 fig = plt.figure(figsize=(14, 6))
 

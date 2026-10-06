@@ -19,7 +19,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"🔥 Entrenando Modelo V8 (estándar, sin velocidad) en: {device}")
 
 # ==========================================
-# 1. CONFIGURACIÓN Y CARGA DE DATOS
+# 1. CONFIGURATION AND DATA LOADING
 # ==========================================
 PATH_DATASET_NPY = 'dataset_v08_completo_sinRot_filt.npy'
 PATH_DATASET_JSON = 'dataset_v08_completo_sinRot_filt_params.json'
@@ -38,7 +38,7 @@ print(f"📊 Entradas: {num_features_input} | Salidas: {Y_raw.shape[1]}")
 
 
 # ==========================================
-# 2. VENTANADO ESTÁNDAR Y SPLIT TRAIN/VAL
+# 2. STANDARD WINDOWING AND TRAIN/VAL SPLIT
 # ==========================================
 FRAC_VAL = 0.10
 N_BLOQUES = 20
@@ -100,7 +100,7 @@ val_loader = DataLoader(
 
 
 # ==========================================
-# 3. PÉRDIDA FÍSICA (GEOMETRÍA BASE)
+# 3. PHYSICS LOSS (BASE GEOMETRY)
 # ==========================================
 class RobotBlandoLoss(nn.Module):
     def __init__(self, y_params, w_pinn=0.05, w_sph_max=1.0, w_sph_min=1.0, w_cyl_max=1.0):
@@ -128,7 +128,7 @@ class RobotBlandoLoss(nn.Module):
         dist_esf2 = x_real ** 2 + y_real ** 2 + z_real ** 2
         dist_cil2 = x_real ** 2 + z_real ** 2
 
-        # Geometría del espacio de trabajo
+        # Workspace geometry
         pen_sph_max = torch.relu(dist_esf2 - 0.335 ** 2)
         pen_sph_min = torch.relu(0.22 ** 2 - dist_esf2)
         pen_cyl_max = torch.relu(dist_cil2 - 0.23 ** 2)
@@ -144,7 +144,7 @@ criterion = RobotBlandoLoss(y_params=Y_TRANS, w_pinn=0.05)
 
 
 # ==========================================
-# 4. ARQUITECTURA RED
+# 4. NETWORK ARCHITECTURE
 # ==========================================
 class SoftRobotLSTM(nn.Module):
     def __init__(self, input_size=17, hidden_size=128, num_layers=2, output_size=3, dropout=0.2):
@@ -171,7 +171,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0
                                                    patience=8, min_lr=1e-6)
 
 # ==========================================
-# 5. ENTRENAMIENTO Y VALIDACIÓN
+# 5. TRAINING AND VALIDATION
 # ==========================================
 EPOCHS = 100
 best_val_loss = float('inf')
@@ -179,7 +179,7 @@ best_val_loss = float('inf')
 print(f"🚀 Iniciando entrenamiento estándar (ventana={WINDOW_SIZE})...")
 
 for epoch in range(EPOCHS):
-    # FASE DE ENTRENAMIENTO
+    # TRAINING PHASE
     model.train()
     epoch_loss = 0.0
     for Xb, Yb in train_loader:
@@ -196,7 +196,7 @@ for epoch in range(EPOCHS):
 
     avg_loss = epoch_loss / len(train_loader)
 
-    # FASE DE VALIDACIÓN
+    # VALIDATION PHASE
     model.eval()
     val_epoch_loss = 0.0
     with torch.no_grad():

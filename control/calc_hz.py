@@ -1,16 +1,16 @@
-r"""Calcula el Hz promedio real de una corrida de MPC.py a partir del CSV,
+r"""Computes the real average Hz of an MPC.py run from the CSV,
 
-comparando DOS fuentes de timestamp para aislar si un hueco grande es del
-lazo de control o del hilo que escribe a disco (p.ej. atascos de OneDrive):
+comparing TWO timestamp sources to isolate whether a large gap comes from the
+control loop or from the thread that writes to disk (e.g. OneDrive stalls):
 
-  - Columna 0 (ESCRITURA): datetime.utcnow() tomado dentro de CSVLogger.log(),
-    en el hilo consumidor que escribe a disco. Un hueco acá puede ser solo el
-    logger atascado (disco lento / OneDrive), no necesariamente el lazo real.
-  - Columna 1 (t_epoch, GENERACIÓN): time.time() tomado en el lazo de control
-    principal, al armar la fila. Este es el que de verdad importa para medir
-    si el lazo de control físico se está colgando.
+  - Column 0 (WRITE): datetime.utcnow() taken inside CSVLogger.log(),
+    in the consumer thread that writes to disk. A gap here may be just the
+    stalled logger (slow disk / OneDrive), not necessarily the real loop.
+  - Column 1 (t_epoch, GENERATION): time.time() taken in the main control
+    loop, when building the row. This is the one that really matters for measuring
+    whether the physical control loop is hanging.
 
-Uso: python continuum_robot/control/calc_hz.py ruta\al\mpc_experiment_YYYYMMDD_HHMMSS.csv
+Usage: python continuum_robot/control/calc_hz.py ruta\al\mpc_experiment_YYYYMMDD_HHMMSS.csv
 """
 import sys
 from datetime import datetime
@@ -29,7 +29,7 @@ with open(path, 'r', encoding='utf-8') as f:
             wts = datetime.fromisoformat(parts[0])
             ets = float(parts[1])
         except ValueError:
-            continue  # fila de encabezado u otra no numérica
+            continue  # header row or other non-numeric row
         write_ts.append(wts)
         epoch_ts.append(ets)
 

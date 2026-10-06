@@ -8,14 +8,14 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 # =====================================================================
-# 1. PANEL DE CONTROL (Configura aquí la variante a evaluar)
+# 1. CONTROL PANEL (Configure the variant to evaluate here)
 # =====================================================================
-VERSION_MODELO = "v2"  # Opciones: "v1", "v2", "v3", "v4"
-WINDOW_SIZE = 45  # Ventana temporal optimizada
-BATCH_SIZE_EVAL = 512  # [NUEVO] Tamaño del lote para inferencia eficiente
+VERSION_MODELO = "v2"  # Options: "v1", "v2", "v3", "v4"
+WINDOW_SIZE = 45  # Optimized temporal window
+BATCH_SIZE_EVAL = 512  # [NEW] Batch size for efficient inference
 
 PATH_CSV = "corto_20260730_164214_477.csv"
-PATH_PESOS = "soft_robot_lstm_v2_7_time.pth"  # O 'soft_robot_lstm_v2.pth'
+PATH_PESOS = "soft_robot_lstm_v2_7_time.pth"  # Or 'soft_robot_lstm_v2.pth'
 PATH_JSON = "dataset_v02_real_meta_sinRot_params.json"
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -23,7 +23,7 @@ print(
     f"🔥 Procesando CSV con dispositivo: {device} | Modo: {VERSION_MODELO.upper()}"
 )
 
-# Diccionario de control de la arquitectura
+# Architecture control dictionary
 config_arquitectura = {
     "v1": {
         "input_size": 5,
@@ -65,7 +65,7 @@ config_arquitectura = {
 cfg = config_arquitectura[VERSION_MODELO]
 
 # =====================================================================
-# 2. CARGA DE PARÁMETROS MAESTROS DESDE EL JSON
+# 2. LOADING MASTER PARAMETERS FROM THE JSON
 # =====================================================================
 with open(PATH_JSON, "r") as f:
   norm_params = json.load(f)
@@ -73,7 +73,7 @@ with open(PATH_JSON, "r") as f:
 home = norm_params["home_motores"]
 
 # =====================================================================
-# 3. PROCESAMIENTO MECÁNICO Y GEOMÉTRICO EN CRUDO DEL CSV
+# 3. RAW MECHANICAL AND GEOMETRIC PROCESSING OF THE CSV
 # =====================================================================
 print(f"📖 Leyendo archivo de telemetría original: {PATH_CSV}")
 
@@ -118,14 +118,14 @@ columnas_validas = [
 df = pd.read_csv(PATH_CSV, names=columnas_validas, header=0)
 df.columns = df.columns.str.strip()
 
-# Differencial de tiempo (delta_t)
+# Time differential (delta_t)
 df["delta_t"] = df["t_relativo"].astype(float).diff()
 df["delta_t"] = df["delta_t"].bfill()
 
-# Recortar la primera fila para asegurar consistencia matemática
+# Trim the first row to ensure mathematical consistency
 df = df.iloc[1:].reset_index(drop=True)
 
-# Deltas de los motores restando calibración Home
+# Deltas of the motors subtracting the Home calibration
 df["delta_real_m1"] = df["real_m1"].astype(float) - home["m1"]
 df["delta_real_m2"] = df["real_m2"].astype(float) - home["m2"]
 df["delta_real_m3"] = df["real_m3"].astype(float) - home["m3"]
@@ -136,7 +136,7 @@ df["delta_meta_m2"] = df["meta_m2"].astype(float) - home["m2"]
 df["delta_meta_m3"] = df["meta_m3"].astype(float) - home["m3"]
 df["delta_meta_m4"] = df["meta_m4"].astype(float) - home["m4"]
 
-# Transformación Geométrica de Coordenadas de OptiTrack (Base -> Efector)
+# Geometric Coordinate Transformation of OptiTrack (Base -> End-effector)
 p_base = df[["base_x", "base_y", "base_z"]].astype(float).values
 p_efector = df[["efector_x", "efector_y", "efector_z"]].astype(float).values
 
@@ -166,7 +166,7 @@ df["rel_qx"], df["rel_qy"], df["rel_qz"], df["rel_qw"] = (
 )
 
 # =====================================================================
-# 4. AISLAMIENTO Y ESCALADO HISTÓRICO [-1, 1]
+# 4. ISOLATION AND HISTORICAL SCALING [-1, 1]
 # =====================================================================
 x_keys = list(norm_params["X_transformer"].keys())
 y_keys = cfg["y_keys"]
@@ -192,14 +192,14 @@ Y_scaled = normalizar_con_limites_json(
 )
 
 # =====================================================================
-# 5. CREACIÓN DE VENTANAS TEMPORALES CONTINUAS Y DATALOADER
+# 5. CREATION OF CONTINUOUS TEMPORAL WINDOWS AND DATALOADER
 # =====================================================================
 X_seq, Y_seq = [], []
 for i in range(len(X_scaled) - WINDOW_SIZE):
   X_seq.append(X_scaled[i : i + WINDOW_SIZE])
   Y_seq.append(Y_scaled[i + WINDOW_SIZE])
 
-# [NUEVO] Creación de Dataset y DataLoader manteniendo el orden temporal (shuffle=False)
+# [NEW] Creation of Dataset and DataLoader preserving temporal order (shuffle=False)
 X_tensor_all = torch.tensor(np.array(X_seq), dtype=torch.float32)
 Y_tensor_all = torch.tensor(np.array(Y_seq), dtype=torch.float32)
 
@@ -210,7 +210,7 @@ eval_loader = DataLoader(
 
 
 # =====================================================================
-# 6. DEFINICIÓN DE ARQUITECTURA LSTM Y CARGA DE PESOS
+# 6. LSTM ARCHITECTURE DEFINITION AND WEIGHT LOADING
 # =====================================================================
 class SoftRobotLSTM(nn.Module):
 
@@ -232,7 +232,7 @@ class SoftRobotLSTM(nn.Module):
   def forward(self, x):
     h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(
         x.device
-    )  # Vinculado dinámicamente al device del tensor de entrada
+    )  # Dynamically bound to the device of the input tensor
     c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
 
     out, _ = self.lstm(x, (h0, c0))
@@ -248,12 +248,12 @@ model.load_state_dict(torch.load(PATH_PESOS, map_location=device))
 model.eval()
 
 # =====================================================================
-# 7. INFERENCIA BATCH-BY-BATCH Y DESNORMALIZACIÓN
+# 7. BATCH-BY-BATCH INFERENCE AND DENORMALIZATION
 # =====================================================================
 preds_list = []
 real_list = []
 
-# [NUEVO] Inferencia por lotes (BATCH_SIZE_EVAL = 512)
+# [NEW] Batch inference (BATCH_SIZE_EVAL = 512)
 with torch.no_grad():
   for batch_x, batch_y in eval_loader:
     batch_x = batch_x.to(device)
@@ -262,7 +262,7 @@ with torch.no_grad():
     preds_list.append(outputs.cpu().numpy())
     real_list.append(batch_y.numpy())
 
-# Concatenar todos los lotes procesados
+# Concatenate all processed batches
 preds_scaled = np.vstack(preds_list)
 real_scaled = np.vstack(real_list)
 
@@ -283,19 +283,19 @@ Y_pred_phys = desnormalizar_matriz(
     preds_scaled, norm_params["Y_transformer"], y_keys
 )
 
-# Filtro algebraico para cuaterniones en V3 y V4
+# Algebraic filter for quaternions in V3 and V4
 if cfg["output_size"] == 7:
   q_vectors = Y_pred_phys[:, 3:7]
   Y_pred_phys[:, 3:7] = q_vectors / np.linalg.norm(
       q_vectors, axis=1, keepdims=True
   )
 
-# Conversión a Milímetros
+# Conversion to Millimeters
 Y_real_mm = Y_real_phys[:, :3] * 1000.0
 Y_pred_mm = Y_pred_phys[:, :3] * 1000.0
 
 # =====================================================================
-# 8. CÁLCULO DE MÉTRICAS CIENTÍFICAS DE ERROR
+# 8. COMPUTATION OF SCIENTIFIC ERROR METRICS
 # =====================================================================
 mae_ejes = np.mean(np.abs(Y_real_mm - Y_pred_mm), axis=0)
 error_euclidiano_3d = np.sqrt(np.sum((Y_real_mm - Y_pred_mm) ** 2, axis=1))
@@ -311,11 +311,11 @@ print(f"📐 ERREUR DE DISTANCE EUCLÍDEA 3D MOYENNE: {mae_3d_promedio:.3f} mm")
 print("=======================================================\n")
 
 # =====================================================================
-# 9. GENERACIÓN DE GRÁFICOS COMPUESTOS EXPERIMENTALES
+# 9. GENERATION OF COMPOSITE EXPERIMENTAL PLOTS
 # =====================================================================
 fig = plt.figure(figsize=(14, 6))
 
-# Gráfico Izquierdo: Reconstrucción espacial 3D
+# Left Plot: 3D spatial reconstruction
 ax1 = fig.add_subplot(1, 2, 1, projection="3d")
 ax1.plot(
     Y_real_mm[:, 0],
@@ -345,7 +345,7 @@ ax1.set_zlabel("Eje Z (mm)")
 ax1.legend()
 ax1.grid(True)
 
-# Gráfico Derecho: Comportamiento por eje a lo largo del tiempo
+# Right Plot: Per-axis behavior over time
 ax2 = fig.add_subplot(1, 2, 2)
 time_axis = np.arange(len(Y_real_mm))
 ax2.plot(

@@ -90,8 +90,8 @@ def desnormalizar_vector(vector_normalizado, column_name):
 
 def forward_kinematics_prediction(motores_objetivo, secuencia_historica, delta_t=0.05):
     """
-    Construye un paso nuevo con la propuesta de motores, lo normaliza,
-    y devuelve la posición 3D estimada desnormalizada.
+    Builds a new step with the proposed motor values, normalizes it,
+    and returns the estimated 3D position, denormalized.
     """
     motores_objetivo = np.asarray(motores_objetivo, dtype=np.float32).reshape(-1)
     secuencia_historica = np.asarray(secuencia_historica, dtype=np.float32)
@@ -99,37 +99,37 @@ def forward_kinematics_prediction(motores_objetivo, secuencia_historica, delta_t
     if secuencia_historica.ndim != 2 or secuencia_historica.shape[1] != 9:
         raise ValueError("secuencia_historica debe ser una matriz de forma (N, 9)")
 
-    # 1. Construir el paso actual crudo (en unidades reales)
+    # 1. Build the current raw step (in real units)
     paso_actual = np.hstack([motores_objetivo, motores_objetivo, delta_t]).astype(np.float32)
     nueva_secuencia_cruda = np.vstack([secuencia_historica, paso_actual])
 
-    # 2. 🔥 NORMALIZAR LA ENTRADA AL RANGO [-1, 1] USANDO EL JSON 🔥
+    # 2. 🔥 NORMALIZE THE INPUT TO THE RANGE [-1, 1] USING THE JSON 🔥
     nueva_secuencia_scaled = np.zeros_like(nueva_secuencia_cruda, dtype=np.float32)
     
     if "X_transformer" in SCALERS:
-        # El JSON contiene las llaves en orden: real_m1..4, meta_m1..4, delta_t
+        # The JSON contains the keys in order: real_m1..4, meta_m1..4, delta_t
         for idx, key in enumerate(SCALERS["X_transformer"].keys()):
             min_t = float(SCALERS["X_transformer"][key]["min_t"])
             max_t = float(SCALERS["X_transformer"][key]["max_t"])
             
-            # Evitar división por cero
+            # Avoid division by zero
             if np.isclose(max_t, min_t):
                 nueva_secuencia_scaled[:, idx] = 0.0
             else:
-                # Fórmula de mapeo al rango [-1, 1]
+                # Mapping formula to the range [-1, 1]
                 nueva_secuencia_scaled[:, idx] = 2.0 * (nueva_secuencia_cruda[:, idx] - min_t) / (max_t - min_t) - 1.0
     else:
-        # Si por alguna razón no hay scalers, dejamos el crudo (no recomendado)
+        # If for some reason there are no scalers, we leave the raw value (not recommended)
         nueva_secuencia_scaled = nueva_secuencia_cruda
 
-    # 3. Convertir a Tensor el bloque ya normalizado
+    # 3. Convert the already normalized block to a Tensor
     secuencia_tensor = torch.tensor(nueva_secuencia_scaled, dtype=torch.float32, device=DEVICE).unsqueeze(0)
 
-    # 4. Inferencia
+    # 4. Inference
     with torch.no_grad():
         pred_norm = MODEL(secuencia_tensor, device=DEVICE).cpu().numpy()[0]
 
-    # 5. Desnormalizar la salida (Tu función actual está perfecta aquí)
+    # 5. Denormalize the output (Your current function is perfect here)
     pred_real = np.array([
         desnormalizar_vector(pred_norm[0], "rel_x"),
         desnormalizar_vector(pred_norm[1], "rel_y"),
@@ -140,15 +140,15 @@ def forward_kinematics_prediction(motores_objetivo, secuencia_historica, delta_t
 
 
 def funcion_objetivo(motores_propuestos, x_deseado, secuencia_historica, lambda_suavizado=0.4):
-    # 1. Calcular el error de posicionamiento en el espacio (en mm)
+    # 1. Compute the positioning error in space (in mm)
     x_predicho = forward_kinematics_prediction(motores_propuestos, secuencia_historica)
     error_posicion = np.linalg.norm(x_predicho - x_deseado) * 1000.0
     
-    # 2. 🔥 NUEVO: Penalizar el "salto" desde el último paso conocido (en ticks) 🔥
-    motores_anteriores = secuencia_historica[-1, :4] # El paso 59 real
+    # 2. 🔥 NEW: Penalize the "jump" from the last known step (in ticks) 🔥
+    motores_anteriores = secuencia_historica[-1, :4] # The actual step 59
     esfuerzo_motores = np.linalg.norm(motores_propuestos - motores_anteriores)
     
-    # Costo total combinado
+    # Combined total cost
     costo_total = error_posicion + (lambda_suavizado * esfuerzo_motores)
     return float(costo_total)
 
@@ -211,7 +211,7 @@ def resolver_cinematica_inversa(posicion_deseada, historial=None, x0=None, bound
 
 if __name__ == "__main__":
     # =====================================================================
-    # EVALUACIÓN MASIVA SOBRE EL DATASET COMPLETÓ (Offline Validation)
+    # BULK EVALUATION OVER THE COMPLETE DATASET (Offline Validation)
     # =====================================================================
     
     path_csv = BASE_DIR / "largo_20260715_180227_622.csv"
@@ -232,7 +232,7 @@ if __name__ == "__main__":
     print(f"🔄 Iniciando evaluación masiva en {len(indices_evaluacion)} puntos...")
     
     for idx in indices_evaluacion:
-        # 1. Construir el historial dinámico
+        # 1. Build the dynamic history
         df_historia = df_completo.iloc[idx - N_PASOS_HISTORIAL : idx].copy()
         
         secuencia = []
@@ -243,11 +243,11 @@ if __name__ == "__main__":
             secuencia.append(v_reales + v_meta + [d_t])
             
         historial_dinamico = np.asarray(secuencia, dtype=np.float32)
-        # Quitar el offset de 2040 a los motores
+        # Remove the 2040 offset from the motors
         historial_dinamico[:, :4] -= 2040.0
         historial_dinamico[:, 4:8] -= 2040.0
         
-        # 2. 🔥 FIX 2: OBJETIVO EN COORDENADAS RELATIVAS 🔥
+        # 2. 🔥 FIX 2: TARGET IN RELATIVE COORDINATES 🔥
         fila_objetivo = df_completo.iloc[idx]
         posicion_deseada = np.array([
             float(fila_objetivo['efector_x']) - float(fila_objetivo['base_x']), 
@@ -257,15 +257,15 @@ if __name__ == "__main__":
         
         motores_reales_test = np.array([float(fila_objetivo[c]) for c in columnas_reales]) - 2040.0
         
-        # 3. 🔥 FIX 3: INICIO CALIENTE (WARM START) 🔥
-        # En vez de empezar en [0,0,0,0], empezamos en la posición real del paso anterior (t-1)
+        # 3. 🔥 FIX 3: WARM START 🔥
+        # Instead of starting at [0,0,0,0], we start at the actual position of the previous step (t-1)
         x0_warm_start = historial_dinamico[-1, :4].copy()
 
-        # 4. 🔥 FIX 1: LÍMITES REALISTAS 🔥
-        # Ampliamos los límites para que cubran el rango real de movimiento del Dynamixel
+        # 4. 🔥 FIX 1: REALISTIC LIMITS 🔥
+        # We widen the limits so that they cover the real range of motion of the Dynamixel
         limites_amplios = [(-1500, 1500)] * 4
 
-        # Resolver Cinemática Inversa
+        # Solve Inverse Kinematics
         resultado = minimize(
             funcion_objetivo,
             x0=x0_warm_start, 
@@ -282,7 +282,7 @@ if __name__ == "__main__":
         motores_reales.append(motores_reales_test)
 
     # =====================================================================
-    # REPORTE
+    # REPORT
     # =====================================================================
     print("\n=======================================================")
     print("📊 REPORTE DE EVALUACIÓN GLOBAL DEL OPTIMIZADOR")

@@ -8,13 +8,13 @@ import torch
 import torch.nn as nn
 
 # =====================================================================
-# 1. CONFIGURACIÓN Y ARCHIVOS
+# 1. CONFIGURATION AND FILES
 # =====================================================================
-# Evalúa el checkpoint de train_pred_v2.py (dataset 'real_meta'+sinRot: 9
-# entradas -- tiempo + ángulos reales + ángulos objetivo -- y 3 salidas,
-# solo posición) contra 'corto', la grabación independiente que
-# train_pred_v2.py reservó como test ciego (nunca se usa para entrenar ni
-# para elegir el checkpoint -- ver train_pred_v2.py sección 4).
+# Evaluates the checkpoint from train_pred_v2.py (dataset 'real_meta'+sinRot: 9
+# inputs -- time + real angles + target angles -- and 3 outputs,
+# position only) against 'corto', the independent recording that
+# train_pred_v2.py reserved as a blind test (never used to train nor
+# to choose the checkpoint -- see train_pred_v2.py section 4).
 PATH_CSV_TEST = 'corto_20260730_195350_730.csv'
 PATH_METADATA = 'dataset_pred_v01_real_meta_sinRot_directo_filt_params.json'
 PATH_MODEL_WEIGHTS = 'best_mpc_pinn_predictor_v2_realmeta.pth'
@@ -22,7 +22,7 @@ PATH_MODEL_WEIGHTS = 'best_mpc_pinn_predictor_v2_realmeta.pth'
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'🚀 Evaluando en dispositivo: {DEVICE}')
 
-# Cargar metadatos
+# Load metadata
 with open(PATH_METADATA, 'r') as f:
   metadata = json.load(f)
 
@@ -43,7 +43,7 @@ LIMITES_TORQUE = (-500.0, 500.0)
 LIMITES_TENSION = (500.0, 2000.0)
 
 # =====================================================================
-# 2. PROCESAMIENTO Y FILTRADO DEL CSV DE PRUEBA
+# 2. PROCESSING AND FILTERING OF THE TEST CSV
 # =====================================================================
 columnas = [
     'timestamp',
@@ -87,13 +87,13 @@ df = pd.read_csv(PATH_CSV_TEST, names=columnas)
 df['delta_t'] = df['t_relativo'].diff().bfill()
 df = df.iloc[1:].reset_index(drop=True)
 
-# Geometría y Motores
+# Geometry and Motors
 for i in range(1, 5):
   df[f'delta_real_m{i}'] = df[f'real_m{i}'] - ANGULOS_CALIBRACION[f'm{i}']
   df[f'delta_meta_m{i}'] = df[f'meta_m{i}'] - ANGULOS_CALIBRACION[f'm{i}']
 
-# Posición y rotación relativa al marco de la BASE (misma fórmula que
-# MPC.py en inferencia y que dataset_pred_filt.py en entrenamiento).
+# Position and rotation relative to the BASE frame (same formula as
+# MPC.py at inference and dataset_pred_filt.py at training).
 p_base_arr = df[['base_x', 'base_y', 'base_z']].values
 p_efector_arr = df[['efector_x', 'efector_y', 'efector_z']].values
 q_base_arr = df[['base_qx', 'base_qy', 'base_qz', 'base_qw']].values
@@ -114,7 +114,7 @@ df['rel_qz'] = q_rel[:, 2]
 df['rel_qw'] = q_rel[:, 3]
 
 
-# Filtro Pasabajas
+# Low-pass Filter
 def aplicar_filtro_pasabajas(data, cutoff_hz=6.0, fs_hz=60.0, order=2):
   nyquist = 0.5 * fs_hz
   normal_cutoff = cutoff_hz / nyquist
@@ -125,8 +125,8 @@ def aplicar_filtro_pasabajas(data, cutoff_hz=6.0, fs_hz=60.0, order=2):
 for col in ['rel_x', 'rel_y', 'rel_z']:
   df[col] = aplicar_filtro_pasabajas(df[col].values, cutoff_hz=6.0, fs_hz=60.0)
 
-# El cuaternión se filtra igual (fidelidad con dataset_pred_filt.py), aunque
-# esta variante (sinRot) no lo usa como salida -- solo se predicen rel_x/y/z.
+# The quaternion is filtered the same way (fidelity with dataset_pred_filt.py), although
+# this variant (sinRot) does not use it as an output -- only rel_x/y/z are predicted.
 q_vals = df[['rel_qx', 'rel_qy', 'rel_qz', 'rel_qw']].values.copy()
 for i in range(1, len(q_vals)):
   if np.dot(q_vals[i], q_vals[i - 1]) < 0:
@@ -152,7 +152,7 @@ for i in range(1, 5):
   )
 
 
-# Escalado estricto usando PARÁMETROS DE ENTRENAMIENTO
+# Strict scaling using TRAINING PARAMETERS
 def escalar_con_parametros(df_raw, columnas_nombres, dict_params):
   scaled_matrix = np.zeros((len(df_raw), len(columnas_nombres)))
   for idx, col in enumerate(columnas_nombres):
@@ -164,7 +164,7 @@ def escalar_con_parametros(df_raw, columnas_nombres, dict_params):
   return scaled_matrix
 
 
-# 9 entradas: tiempo + ángulos reales + ángulos objetivo (sin torque/tensión)
+# 9 inputs: time + real angles + target angles (no torque/tension)
 cols_x_hist = [
     'delta_real_m1',
     'delta_real_m2',
@@ -184,7 +184,7 @@ cols_u_fut = [
     'delta_meta_m4',
 ]
 
-# sinRot: solo posición, sin cuaternión
+# sinRot: position only, no quaternion
 cols_y = [
     'rel_x',
     'rel_y',
@@ -195,7 +195,7 @@ X_scaled = escalar_con_parametros(df, cols_x_hist, X_TRANS)
 U_scaled = escalar_con_parametros(df, cols_u_fut, X_TRANS)
 Y_scaled = escalar_con_parametros(df, cols_y, Y_TRANS)
 
-# Generar Secuencias
+# Generate Sequences
 X_hist_list, U_cand_list, Y_fut_list = [], [], []
 for i in range(len(df) - T_IN - T_OUT):
   window_delta_t = df['delta_t'].iloc[i : i + T_IN + T_OUT].values
@@ -220,7 +220,7 @@ print(
 
 
 # =====================================================================
-# 3. CARGA DEL MODELO PREDICTOR Y ARQUITECTURA
+# 3. LOADING THE PREDICTOR MODEL AND ARCHITECTURE
 # =====================================================================
 class MPCDirectPredictor(nn.Module):
 
@@ -279,7 +279,7 @@ model.load_state_dict(checkpoint['model_state_dict'])
 model.eval()
 
 # =====================================================================
-# 4. INFERENCIA Y EVALUACIÓN EN UNIDADES REALES (MILÍMETROS)
+# 4. INFERENCE AND EVALUATION IN REAL UNITS (MILLIMETERS)
 # =====================================================================
 with torch.no_grad():
   Y_pred_scaled = model(X_test.to(DEVICE), U_test.to(DEVICE)).cpu().numpy()
@@ -287,14 +287,14 @@ with torch.no_grad():
 Y_true_scaled = Y_test_scaled.numpy()
 
 
-# Función de Desescalado
+# Descaling Function
 def desescalar_var(val_scaled, col_name, dict_params):
   min_t = dict_params[col_name]['min_t']
   max_t = dict_params[col_name]['max_t']
   return min_t + (val_scaled + 1.0) * (max_t - min_t) / 2.0
 
 
-# Convertir a Metros -> Milímetros
+# Convert to Meters -> Millimeters
 X_pred_mm = desescalar_var(Y_pred_scaled[:, :, 0], 'rel_x', Y_TRANS) * 1000.0
 Y_pred_mm = desescalar_var(Y_pred_scaled[:, :, 1], 'rel_y', Y_TRANS) * 1000.0
 Z_pred_mm = desescalar_var(Y_pred_scaled[:, :, 2], 'rel_z', Y_TRANS) * 1000.0

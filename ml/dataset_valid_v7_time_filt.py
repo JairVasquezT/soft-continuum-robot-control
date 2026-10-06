@@ -18,15 +18,15 @@ parser.add_argument('--title', type=str, default='')
 args = parser.parse_args()
 
 # =====================================================================
-# 1. PANEL DE CONTROL (Configurado para V7 Single-Stream)
+# 1. CONTROL PANEL (Configured for V7 Single-Stream)
 # =====================================================================
 VERSION_MODELO = "v7_single"
-WINDOW_SIZE = args.window_size  # Ventana temporal de 90 muestras (1.5 s a 60 Hz)
+WINDOW_SIZE = args.window_size  # Temporal window of 90 samples (1.5 s at 60 Hz)
 BATCH_SIZE_EVAL = 512
-FS_SISTEMA = 60.0  # Frecuencia de muestreo del sistema (60 Hz)
+FS_SISTEMA = 60.0  # System sampling frequency (60 Hz)
 
 PATH_CSV = "corto_20260730_195350_730.csv"
-PATH_PESOS = args.model  # Pesos del modelo V7 Single-Stream
+PATH_PESOS = args.model  # V7 Single-Stream model weights
 PATH_JSON = "dataset_v07_real_meta_tension_sinRot_filt_params.json"
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -38,7 +38,7 @@ print(
 cfg = {'input_size': 13, 'output_size': 3, 'y_keys': ['rel_x', 'rel_y', 'rel_z']}
 
 # =====================================================================
-# 2. CARGA DE PARÁMETROS MAESTROS DESDE EL JSON V7
+# 2. LOADING MASTER PARAMETERS FROM THE V7 JSON
 # =====================================================================
 with open(PATH_JSON, 'r') as f:
   norm_params = json.load(f)
@@ -46,7 +46,7 @@ with open(PATH_JSON, 'r') as f:
 home = norm_params['home_motores']
 
 # =====================================================================
-# 3. PROCESAMIENTO MECÁNICO Y GEOMÉTRICO
+# 3. MECHANICAL AND GEOMETRIC PROCESSING
 # =====================================================================
 columnas_validas = [
     'timestamp',
@@ -128,7 +128,7 @@ df['rel_qx'], df['rel_qy'], df['rel_qz'], df['rel_qw'] = (
 
 
 # =====================================================================
-# 3.5. FILTRADO DIGITAL DE FASE CERO (PASABAJAS + UNWRAP)
+# 3.5. ZERO-PHASE DIGITAL FILTERING (LOW-PASS + UNWRAP)
 # =====================================================================
 def aplicar_filtro_pasabajas(data, cutoff_hz, fs_hz=60.0, order=2):
   nyquist = 0.5 * fs_hz
@@ -154,13 +154,13 @@ def filtrar_y_normalizar_cuaterniones(
 
 print('🧹 Aplicando filtrado pasabajas al conjunto de Test V7...')
 
-# 1. Posiciones cartesianas objetivo de OptiTrack (6.0 Hz)
+# 1. OptiTrack target Cartesian positions (6.0 Hz)
 for col in ['rel_x', 'rel_y', 'rel_z']:
   df[col] = aplicar_filtro_pasabajas(
       df[col].values, cutoff_hz=6.0, fs_hz=FS_SISTEMA
   )
 
-# 2. Desenrollado y filtrado de cuaterniones (6.0 Hz)
+# 2. Unwrapping and filtering of quaternions (6.0 Hz)
 q_norm = filtrar_y_normalizar_cuaterniones(
     df[['rel_qx', 'rel_qy', 'rel_qz', 'rel_qw']],
     cutoff_hz=6.0,
@@ -173,7 +173,7 @@ df['rel_qx'], df['rel_qy'], df['rel_qz'], df['rel_qw'] = (
     q_norm[:, 3],
 )
 
-# 3. Tensiones y torques dinámicos de entrada para V7 (3.5 Hz)
+# 3. Dynamic input tensions and torques for V7 (3.5 Hz)
 for i in range(1, 5):
   df[f'tension_m{i}'] = aplicar_filtro_pasabajas(
       df[f'tension_m{i}'].values, cutoff_hz=3.5, fs_hz=FS_SISTEMA
@@ -185,7 +185,7 @@ for i in range(1, 5):
 print('✓ Filtrado completado exitosamente.')
 
 # =====================================================================
-# 4. NORMALIZACIÓN AUTOMÁTICA (13 FEATURES DE V7)
+# 4. AUTOMATIC NORMALIZATION (13 V7 FEATURES)
 # =====================================================================
 x_keys = list(norm_params['X_transformer'].keys())
 y_keys = cfg['y_keys']
@@ -211,7 +211,7 @@ Y_scaled = normalizar_con_limites_json(
 )
 
 # =====================================================================
-# 5. VENTANADO TEMPORAL Y DATALOADER
+# 5. TEMPORAL WINDOWING AND DATALOADER
 # =====================================================================
 X_seq, Y_seq = [], []
 for i in range(len(X_scaled) - WINDOW_SIZE):
@@ -228,7 +228,7 @@ eval_loader = DataLoader(
 
 
 # =====================================================================
-# 6. ARQUITECTURA SINGLE-STREAM LSTM (V7)
+# 6. SINGLE-STREAM LSTM ARCHITECTURE (V7)
 # =====================================================================
 class V7SingleStreamLSTM(nn.Module):
 
@@ -242,7 +242,7 @@ class V7SingleStreamLSTM(nn.Module):
   ):
     super(V7SingleStreamLSTM, self).__init__()
 
-    # Red LSTM unificada para las 13 características de entrada
+    # Unified LSTM network for the 13 input features
     self.lstm = nn.LSTM(
         input_size,
         hidden_size,
@@ -252,7 +252,7 @@ class V7SingleStreamLSTM(nn.Module):
 
     self.dropout = nn.Dropout(dropout)
 
-    # Capas totalmente conectadas de salida
+    # Fully connected output layers
     self.fc = nn.Sequential(
         nn.Linear(hidden_size, 64),
         nn.ReLU(),
@@ -264,13 +264,13 @@ class V7SingleStreamLSTM(nn.Module):
     # x shape: (batch_size, window_size, 13)
     out, _ = self.lstm(x)
 
-    # Tomar la salida del último paso de tiempo de la secuencia
+    # Take the output of the last time step of the sequence
     last_step = out[:, -1, :]
 
     return self.fc(last_step)
 
 
-# Instanciación y carga de pesos
+# Instantiation and weight loading
 model = V7SingleStreamLSTM(
     input_size=13,
     hidden_size=args.hidden_size,
@@ -283,7 +283,7 @@ model.load_state_dict(torch.load(PATH_PESOS, map_location=device))
 model.eval()
 
 # =====================================================================
-# 7. INFERENCIA EN LOTE SINGLE-STREAM (13 ENTREDAS DIRECTAS)
+# 7. SINGLE-STREAM BATCH INFERENCE (13 DIRECT INPUTS)
 # =====================================================================
 preds_list = []
 real_list = []
@@ -292,7 +292,7 @@ with torch.no_grad():
   for x_batch, y_batch in eval_loader:
     x_batch = x_batch.to(device)
 
-    # Inferencia en el flujo único
+    # Inference in the single stream
     preds_batch = model(x_batch)
 
     preds_list.append(preds_batch.cpu().numpy())
@@ -318,12 +318,12 @@ Y_pred_phys = desnormalizar_matriz(
     preds_scaled, norm_params['Y_transformer'], y_keys
 )
 
-# Conversión a milímetros
+# Conversion to millimeters
 Y_real_mm = Y_real_phys[:, :3] * 1000.0
 Y_pred_mm = Y_pred_phys[:, :3] * 1000.0
 
 # =====================================================================
-# 8. CÁLCULO DE MÉTRICAS DE ERROR
+# 8. COMPUTATION OF ERROR METRICS
 # =====================================================================
 mae_ejes = np.mean(np.abs(Y_real_mm - Y_pred_mm), axis=0)
 error_euclidiano_3d = np.sqrt(np.sum((Y_real_mm - Y_pred_mm) ** 2, axis=1))
@@ -341,7 +341,7 @@ print(f'📐 ERROR DE DISTANCIA EUCLÍDEA 3D PROMEDIO: {mae_3d_promedio:.3f} mm'
 print('=======================================================\n')
 
 # =====================================================================
-# 9. VISUALIZACIÓN GRÁFICA COMPARATIVA
+# 9. COMPARATIVE GRAPHICAL VISUALIZATION
 # =====================================================================
 fig = plt.figure(figsize=(14, 6))
 if args.title:

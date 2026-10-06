@@ -7,7 +7,7 @@ from scipy.signal import butter, filtfilt
 from scipy.spatial.transform import Rotation as R
 
 # =====================================================================
-# 1. CARGA Y LECTURA DEL CSV
+# 1. LOADING AND READING THE CSV
 # =====================================================================
 columnas = [
     'timestamp',
@@ -40,17 +40,17 @@ columnas = [
 
 df = pd.read_csv('largo_20260710_130354_284.csv', names=columnas)
 
-#Submuestreo a 30Hz
+#Subsampling to 30Hz
 #df = df.iloc[::2].reset_index(drop=True)
 
-# Cálculo del tiempo delta entre muestras
+# Computation of the time delta between samples
 df['delta_t'] = df['t_relativo'].diff().bfill()
 df = df.iloc[1:].reset_index(drop=True)
 
 print(f'✓ Muestras cargadas correctamente ({len(df)} filas)')
 
 # =====================================================================
-# 2. SECCIÓN DE CALIBRACIÓN (CENTROS FIJOS Y RANGOS)
+# 2. CALIBRATION SECTION (FIXED CENTERS AND RANGES)
 # =====================================================================
 ANGULOS_CALIBRACION = {'m1': 1871.0, 'm2': 1951.0, 'm3': 1485.0, 'm4': 1712.0}
 RANGOS_MANUALES = {'m1': 650.0, 'm2': 650.0, 'm3': 750.0, 'm4': 750.0}
@@ -64,19 +64,19 @@ LIMITES_ESPACIALES = {
 LIMITES_TORQUE = (-500.0, 500.0)
 LIMITES_TENSION = (500.0, 2000.0)
 
-# Posiciones relativas de motores (NO SE FILTRAN para preservar la dinámica de conmutación)
+# Relative motor positions (NOT FILTERED, to preserve the switching dynamics)
 for i in range(1, 5):
   df[f'delta_real_m{i}'] = df[f'real_m{i}'] - ANGULOS_CALIBRACION[f'm{i}']
   df[f'delta_meta_m{i}'] = df[f'meta_m{i}'] - ANGULOS_CALIBRACION[f'm{i}']
 
 # =====================================================================
-# 3-4. TRANSFORMACIÓN DE POSICIÓN Y ROTACIÓN RELATIVA AL MARCO DE LA BASE
+# 3-4. POSITION AND ROTATION TRANSFORMATION RELATIVE TO THE BASE FRAME
 # =====================================================================
-# Misma fórmula que usa MPC.py en inferencia (_procesar_lecturas_cinematicas):
+# Same formula used by MPC.py at inference (_procesar_lecturas_cinematicas):
 # p_rel = R_base.inv().apply(p_efector - p_base)
 # q_rel = (R_base.inv() * R_efector).as_quat()
-# Antes esto era una resta/cuaternión "en crudo" (marco del mundo), sin rotar
-# al marco de la base -- desalineado con lo que MPC.py calcula en tiempo real.
+# Previously this was a "raw" subtraction/quaternion (world frame), without rotating
+# to the base frame -- misaligned with what MPC.py computes in real time.
 p_base_arr = df[['base_x', 'base_y', 'base_z']].values
 p_efector_arr = df[['efector_x', 'efector_y', 'efector_z']].values
 q_base_arr = df[['base_qx', 'base_qy', 'base_qz', 'base_qw']].values
@@ -98,10 +98,10 @@ df['rel_qw'] = q_rel[:, 3]
 
 
 # =====================================================================
-# 4.5. FILTRADO ESPECIALIZADO DE FASE CERO
+# 4.5. SPECIALIZED ZERO-PHASE FILTERING
 # =====================================================================
 def aplicar_filtro_pasabajas(data, cutoff_hz=4.0, fs_hz=60.0, order=2):
-  """Aplica un filtro Butterworth pasabajas bidireccional (filtfilt)."""
+  """Applies a bidirectional low-pass Butterworth filter (filtfilt)."""
   nyquist = 0.5 * fs_hz
   normal_cutoff = cutoff_hz / nyquist
   b, a = butter(order, normal_cutoff, btype='low', analog=False)
@@ -111,36 +111,36 @@ def aplicar_filtro_pasabajas(data, cutoff_hz=4.0, fs_hz=60.0, order=2):
 def filtrar_y_normalizar_cuaterniones(
     df_quat, cutoff_hz=6.0, fs_hz=60.0, order=2
 ):
-  """Filtra cuaterniones preservando la continuidad de signo y la norma 1."""
+  """Filters quaternions preserving sign continuity and unit norm."""
   q_vals = df_quat[['rel_qx', 'rel_qy', 'rel_qz', 'rel_qw']].values.copy()
 
-  # 1. Desenrollado de signo (Sign Unwrap) para evitar saltos entre q y -q
+  # 1. Sign unwrapping (Sign Unwrap) to avoid jumps between q and -q
   for i in range(1, len(q_vals)):
     if np.dot(q_vals[i], q_vals[i - 1]) < 0:
       q_vals[i] = -q_vals[i]
 
-  # 2. Aplicar filtro lineal a las 4 componentes
+  # 2. Apply the linear filter to the 4 components
   q_filt = aplicar_filtro_pasabajas(
       q_vals, cutoff_hz=cutoff_hz, fs_hz=fs_hz, order=order
   )
 
-  # 3. Re-normalización geométrica (||q|| = 1)
+  # 3. Geometric re-normalization (||q|| = 1)
   normas = np.linalg.norm(q_filt, axis=1, keepdims=True)
   normas[normas == 0] = 1.0
   return q_filt / normas
 
 
-FS_SISTEMA = 60.0  # Frecuencia de muestreo (60 Hz)
+FS_SISTEMA = 60.0  # Sampling frequency (60 Hz)
 
 print('🧹 Aplicando filtrado pasabajas selectivo...')
 
-# A) Filtrar Posiciones Relativas (OptiTrack X, Y, Z a 6 Hz)
+# A) Filter Relative Positions (OptiTrack X, Y, Z at 6 Hz)
 for col in ['rel_x', 'rel_y', 'rel_z']:
   df[col] = aplicar_filtro_pasabajas(
       df[col].values, cutoff_hz=6.0, fs_hz=FS_SISTEMA
   )
 
-# B) Filtrar Cuaterniones con Desenrollado y Re-normalización
+# B) Filter Quaternions with Unwrapping and Re-normalization
 q_normalizados = filtrar_y_normalizar_cuaterniones(
     df[['rel_qx', 'rel_qy', 'rel_qz', 'rel_qw']],
     cutoff_hz=6.0,
@@ -154,7 +154,7 @@ df['rel_qx'], df['rel_qy'], df['rel_qz'], df['rel_qw'] = (
 )
 
 
-# NOTA: Posiciones de motores (delta_real_m, delta_meta_m) no se filtran.
+# NOTE: Motor positions (delta_real_m, delta_meta_m) are not filtered.
 
 print(
     '✓ Filtrado completado: Posiciones 3D, Cuaterniones (normalizados), Torques'
@@ -163,7 +163,7 @@ print(
 
 
 # =====================================================================
-# 5. FUNCIÓN DE ESCALADO HÍBRIDA CON SUFIJO _FILT
+# 5. HYBRID SCALING FUNCTION WITH _FILT SUFFIX
 # =====================================================================
 def calcular_limites_y_escalar(data_frame, nombres_columnas):
   data_array = data_frame[nombres_columnas].values
@@ -212,7 +212,7 @@ def calcular_limites_y_escalar(data_frame, nombres_columnas):
 
 
 def procesar_y_guardar(columnas_x, columnas_y, nombre_archivo_base):
-  # Añadir el sufijo '_filt' a los archivos generados
+  # Add the '_filt' suffix to the generated files
   nombre_archivo = f'{nombre_archivo_base}_filt'
 
   X_scaled, X_params = calcular_limites_y_escalar(df, columnas_x)
@@ -233,7 +233,7 @@ def procesar_y_guardar(columnas_x, columnas_y, nombre_archivo_base):
 
 
 # =====================================================================
-# 6. GENERACIÓN DE TODAS LAS COMBINACIONES FILTRADAS (v01 a v16)
+# 6. GENERATION OF ALL FILTERED COMBINATIONS (v01 to v16)
 # =====================================================================
 X_base = [
     'delta_real_m1',
@@ -269,7 +269,7 @@ for x_tag, y_tag in orden_datasets:
   v_idx += 1
 
 # =====================================================================
-# 7. VISUALISATION 3D (Sous-échantillonnage : 1 donnée sur 4)
+# 7. 3D VISUALIZATION (Subsampling: 1 sample out of 4)
 # =====================================================================
 df_sub = df.iloc[::4]
 
@@ -306,7 +306,7 @@ fig.colorbar(sc, ax=ax, label='Temps Relatif (s)')
 plt.show()
 
 # =====================================================================
-# 8. ANALYSE DE LA FRÉQUENCE D'ÉCHANTILLONNAGE (0 - 30 Hz)
+# 8. SAMPLING FREQUENCY ANALYSIS (0 - 30 Hz)
 # =====================================================================
 # Calculation of sampling frequency per sample: Fs = 1 / delta_t
 frecuencias = 1.0 / df['delta_t'].replace(0, np.nan)

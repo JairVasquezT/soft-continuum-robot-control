@@ -1,5 +1,5 @@
-"""Control sencillo para Dynamixel usando `dynamixel_sdk` si está instalado.
-Incluye un `Dummy` para pruebas sin hardware.
+"""Simple control for Dynamixel using `dynamixel_sdk` if installed.
+Includes a `Dummy` for testing without hardware.
 """
 from time import sleep
 import time
@@ -33,11 +33,11 @@ class DynamixelController:
         if not self.portHandler.setBaudRate(baudrate):
             raise RuntimeError(f'No se pudo configurar baudrate {baudrate}')
         
-        # Hold Filter: Memoria de última posición válida por motor
+        # Hold Filter: Memory of the last valid position per motor
         self.ultimas_posiciones_validas = {mid: 0 for mid in cfg.MOTOR_IDS}
         
         if HAS_SDK:
-            # Para enviar múltiples posiciones objetivo a la vez (GroupSyncWrite sí funciona en Proto 1.0)
+            # To send multiple target positions at once (GroupSyncWrite does work in Proto 1.0)
             self.groupSyncWritePos = GroupSyncWrite(
                 self.portHandler, 
                 self.packetHandler, 
@@ -46,22 +46,22 @@ class DynamixelController:
             )
 
     def scan(self, ids: Sequence[int] = None) -> List[int]:
-        """Intenta hacer ping a los ids y devuelve la lista de los que responden."""
+        """Tries to ping the ids and returns the list of those that respond."""
         ids = list(ids or cfg.MOTOR_IDS)
         found = []
         for mid in ids:
             try:
-                # ping devuelve (model_number, result, error) en la SDK
+                # ping returns (model_number, result, error) in the SDK
                 model_num, comm_result, error = self.packetHandler.ping(self.portHandler, int(mid))
                 if comm_result == 0:
                     found.append(mid)
             except Exception:
-                # ignora motores que no responden
+                # ignores motors that do not respond
                 continue
         return found
 
     def set_moving_speed(self, motor_id: int, speed: int):
-        # Use 2 o 4 bytes según protocolo
+        # Use 2 or 4 bytes depending on the protocol
         if self.protocol == 2:
             self.packetHandler.write4ByteTxRx(self.portHandler, motor_id, cfg.ADDR_MOVING_SPEED, int(speed))
         else:
@@ -81,7 +81,7 @@ class DynamixelController:
         return int(pos)
 
     def get_present_load(self, motor_id: int) -> int:
-        """Lee el valor bruto del registro Present Load."""
+        """Reads the raw value of the Present Load register."""
         if self.protocol == 2:
             raw_load, comm, err = self.packetHandler.read4ByteTxRx(self.portHandler, motor_id, cfg.ADDR_PRESENT_LOAD)
         else:
@@ -89,10 +89,10 @@ class DynamixelController:
         return int(raw_load)
 
     def decode_load(self, raw_load: int):
-        """Decodifica el registro Present Load del EX-106+.
+        """Decodes the Present Load register of the EX-106+.
 
-        - bits 0-9: magnitud (0-1023)
-        - bit 10: dirección (0 = CCW, 1 = CW)
+        - bits 0-9: magnitude (0-1023)
+        - bit 10: direction (0 = CCW, 1 = CW)
         """
         magnitude = raw_load & 0x3FF
         direction_bit = (raw_load >> 10) & 0x1
@@ -121,16 +121,16 @@ class DynamixelController:
     def move(self, ids: Sequence[int], positions: Sequence[int], speed: int = None, wait_for_reached: bool = True, timeout: float = 5.0):
         speed = speed if speed is not None else cfg.DEFAULT_SPEED
         
-        # Mantén el envío de velocidad (o pásalo también a SyncWrite si tus registros lo permiten)
+        # Keep sending the speed (or pass it to SyncWrite too if your registers allow it)
         for mid in ids:
             self.set_moving_speed(mid, speed)
             
-        # --- OPTIMIZACIÓN CON SYNC WRITE ---
+        # --- OPTIMIZATION WITH SYNC WRITE ---
         self.groupSyncWritePos.clearParam()
         is_p2 = (self.protocol == 2)
         
         for mid, pos in zip(ids, positions):
-            # Convertir la posición en bytes legibles por la SDK
+            # Convert the position into bytes readable by the SDK
             if is_p2:
                 param_goal_pos = [DXL_LOBYTE(DXL_LOWORD(int(pos))), DXL_HIBYTE(DXL_LOWORD(int(pos))), 
                                   DXL_LOBYTE(DXL_HIWORD(int(pos))), DXL_HIBYTE(DXL_HIWORD(int(pos)))]
@@ -139,15 +139,15 @@ class DynamixelController:
                 
             self.groupSyncWritePos.addParam(int(mid), param_goal_pos)
             
-        # Transmitir a todos los motores simultáneamente
+        # Transmit to all motors simultaneously
         self.groupSyncWritePos.txPacket()
         # -----------------------------------
 
         if not wait_for_reached:
             return
 
-        # Optimización del bucle de espera usando nuestra nueva función síncrona
-        # --- Bucle de espera hasta alcanzar objetivo ---
+        # Wait-loop optimization using our new synchronous function
+        # --- Wait loop until the target is reached ---
         start = time.time()
         pending = set(int(m) for m in ids)
         targets = {int(m): int(p) for m, p in zip(ids, positions)}
@@ -157,7 +157,7 @@ class DynamixelController:
             current_positions, _ = self.sync_get_present_positions(id_list)
             
             for mid, now in zip(id_list, current_positions):
-                # Validar que 'now' sea un valor numérico válido
+                # Validate that 'now' is a valid numeric value
                 if now is not None and isinstance(now, (int, float)):
                     if abs(now - targets[mid]) <= getattr(cfg, 'EPSILON', 2):
                         pending.remove(mid)
@@ -174,11 +174,11 @@ class DynamixelController:
             pass
 
     def sync_get_present_positions(self, ids: Sequence[int]):
-        """Lee posiciones de forma secuencial compatible con Protocolo 1.0 (EX-106+).
+        """Reads positions sequentially, compatible with Protocol 1.0 (EX-106+).
         
-        Retorna: tupla (posiciones: List[int], lectura_valida: int)
-            - posiciones: lista de posiciones (respaldadas si falla una lectura)
-            - lectura_valida: 1 si todas las lecturas fueron limpias, 0 si se usó respaldo
+        Returns: tuple (positions: List[int], valid_reading: int)
+            - positions: list of positions (backed up if a reading fails)
+            - valid_reading: 1 if all readings were clean, 0 if the backup was used
         """
         if not ids:
             return [], 1
@@ -187,7 +187,7 @@ class DynamixelController:
         lectura_valida = 1
         is_p2 = (self.protocol == 2)
         
-        # Lectura secuencial compatible con Protocolo 1.0
+        # Sequential reading compatible with Protocol 1.0
         for mid in ids:
             try:
                 if is_p2:
@@ -202,20 +202,20 @@ class DynamixelController:
                     posiciones.append(pos_int)
                     self.ultimas_posiciones_validas[int(mid)] = pos_int
                 else:
-                    # Fallo de comunicación: usar respaldo
+                    # Communication failure: use backup
                     posiciones.append(self.ultimas_posiciones_validas[int(mid)])
                     lectura_valida = 0
             except Exception:
-                # Excepción interna: usar respaldo
+                # Internal exception: use backup
                 posiciones.append(self.ultimas_posiciones_validas[int(mid)])
                 lectura_valida = 0
         
         return posiciones, lectura_valida
 
     def sync_get_present_position_and_load(self, ids: Sequence[int]):
-        """Lee posición y torque/carga de forma secuencial compatible con Protocolo 1.0 (EX-106+).
+        """Reads position and torque/load sequentially, compatible with Protocol 1.0 (EX-106+).
         
-        Retorna: (posiciones: List[int], torques: List[int], lectura_valida: int)
+        Returns: (positions: List[int], torques: List[int], valid_reading: int)
         """
         if not ids:
             return [], [], 1
@@ -254,7 +254,7 @@ class DynamixelController:
 
 
 class DummyDynamixel:
-    """Controller dummy que imprime las acciones (útil para pruebas)."""
+    """Dummy controller that prints the actions (useful for testing)."""
     def __init__(self, *args, **kwargs):
         print('DummyDynamixel: modo simulación (sin hardware)')
 
@@ -282,7 +282,7 @@ class DummyDynamixel:
 
     def move(self, ids: Sequence[int], positions: Sequence[int], speed: int = None, wait_for_reached: bool = True, timeout: float = 5.0):
         print(f'[Dummy] move ids={ids} positions={positions} speed={speed} (simulated)')
-        # Simular tiempo de movimiento proporcional a la diferencia
+        # Simulate movement time proportional to the difference
         try:
             avg_diff = sum(abs(int(p) - cfg.MIDDLE_POSITION) for p in positions) / max(1, len(positions))
             sim_time = min(0.5 + avg_diff / 2000.0, 2.0)

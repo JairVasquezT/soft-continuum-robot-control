@@ -1,9 +1,9 @@
-"""Histograma de la frecuencia instantánea de muestreo (1/delta_t) de la
-grabación 'largo', para el informe -- muestra cómo se reparte entre ~30 y
-~60 Hz (paquetes/frames perdidos hacen que algunos delta_t sean el doble o
-más del período nominal de 60Hz).
+"""Histogram of the instantaneous sampling frequency (1/delta_t) of the
+'largo' recording, for the report -- shows how it is distributed between ~30 and
+~60 Hz (lost packets/frames make some delta_t be double or
+more of the nominal 60Hz period).
 
-Uso:
+Usage:
   python graficar_frecuencia_largo.py
   python graficar_frecuencia_largo.py --csv otra_grabacion.csv
 """
@@ -25,7 +25,7 @@ COLUMNAS = [
 ]
 
 FS_NOMINAL_HZ = 60.0
-FS_FILTRO_HZ = 55.0  # mismo umbral que MAX_DELTA_T en dataset_filtre.py/dataset_pred_filt.py
+FS_FILTRO_HZ = 55.0  # same threshold as MAX_DELTA_T in dataset_filtre.py/dataset_pred_filt.py
 
 
 def main():
@@ -36,7 +36,7 @@ def main():
 
   df = pd.read_csv(args.csv, names=COLUMNAS)
   delta_t = df['t_relativo'].astype(float).diff().dropna()
-  delta_t = delta_t[delta_t > 0]  # descarta ceros/negativos espurios (reinicios de reloj, etc.)
+  delta_t = delta_t[delta_t > 0]  # discards spurious zeros/negatives (clock resets, etc.)
   freq_hz = 1.0 / delta_t
 
   print(f'✓ {len(df)} filas leídas de {args.csv}')
@@ -49,7 +49,7 @@ def main():
 
   fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
-  # Histograma completo (rango libre, para ver la cola de frecuencias bajas)
+  # Full histogram (free range, to see the tail of low frequencies)
   ax1.hist(freq_hz, bins=100, color='steelblue', edgecolor='black', linewidth=0.3)
   ax1.axvline(FS_NOMINAL_HZ, color='green', linestyle='--', label=f'{FS_NOMINAL_HZ:.0f} Hz nominal')
   ax1.axvline(FS_FILTRO_HZ, color='red', linestyle='--', label=f'{FS_FILTRO_HZ:.0f} Hz umbral de filtro')
@@ -59,7 +59,7 @@ def main():
   ax1.legend()
   ax1.grid(True, alpha=0.3)
 
-  # Zoom en el rango 30-60 Hz (donde se concentra la mayoria)
+  # Zoom on the 30-60 Hz range (where the majority is concentrated)
   en_rango = freq_hz[(freq_hz >= 25) & (freq_hz <= 65)]
   ax2.hist(en_rango, bins=80, color='steelblue', edgecolor='black', linewidth=0.3)
   ax2.axvline(FS_NOMINAL_HZ, color='green', linestyle='--', label=f'{FS_NOMINAL_HZ:.0f} Hz nominal')

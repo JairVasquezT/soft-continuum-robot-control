@@ -1,19 +1,19 @@
-"""Recorre, UNO POR UNO, todos los checkpoints producidos por
-run_experimentos_ventana.py y abre su gráfico de validación (dataset_valid_
-v1/v2/v7/v8_time_filt.py) contra el dataset 'corto' (grabación independiente,
-nunca vista en entrenamiento).
+"""Goes through, ONE BY ONE, all the checkpoints produced by
+run_experimentos_ventana.py and opens their validation plot (dataset_valid_
+v1/v2/v7/v8_time_filt.py) against the 'corto' dataset (independent recording,
+never seen during training).
 
-Cada ventana de matplotlib se abre en primer plano y BLOQUEA la ejecución
-(plt.show() es bloqueante) -- podés girar el 3D, ajustar la vista y guardar
-la imagen manualmente con el botón de guardar de matplotlib. Al CERRAR la
-ventana, este script pasa automáticamente al siguiente checkpoint.
+Each matplotlib window opens in the foreground and BLOCKS execution
+(plt.show() is blocking) -- you can rotate the 3D view, adjust the view and save
+the image manually with matplotlib's save button. When the window is
+CLOSED, this script automatically moves on to the next checkpoint.
 
-El plan (qué checkpoints existen, con qué arquitectura fueron entrenados) se
-reutiliza directamente de run_experimentos_ventana.py -- misma fuente de
-verdad, para que los nombres de archivo y los hiperparámetros (hidden_size,
-num_layers) nunca se desincronicen entre el entrenamiento y esta revisión.
+The plan (which checkpoints exist, with which architecture they were trained) is
+reused directly from run_experimentos_ventana.py -- same source of
+truth, so that file names and hyperparameters (hidden_size,
+num_layers) never get out of sync between training and this review.
 
-Uso:
+Usage:
   python ver_resultados_experimentos.py
   python ver_resultados_experimentos.py --resume_from "v7:w75"
 """
@@ -47,8 +47,8 @@ SCRIPT_VALIDACION_POR_FAMILIA = {
 
 
 def _cargar_plan_entrenamiento():
-  """Importa run_experimentos_ventana.py como módulo (sin ejecutar su
-  main()) para reusar EXPERIMENTOS/CONFIGS_EXTRA/WINDOW_SIZES tal cual."""
+  """Imports run_experimentos_ventana.py as a module (without running its
+  main()) to reuse EXPERIMENTOS/CONFIGS_EXTRA/WINDOW_SIZES as is."""
   spec = importlib.util.spec_from_file_location(
       'runner_entrenamiento', BASE_DIR / 'run_experimentos_ventana.py'
   )
@@ -58,15 +58,15 @@ def _cargar_plan_entrenamiento():
 
 
 def construir_plan_visualizacion(runner):
-  """Misma estructura fase1/fase2 que el entrenamiento, pero apuntando al
-  script de VALIDACIÓN correspondiente y sin --output/--lr (no aplica)."""
+  """Same phase1/phase2 structure as training, but pointing to the
+  corresponding VALIDATION script and without --output/--lr (not applicable)."""
   plan = []
 
   for exp in runner.EXPERIMENTOS:
     familia = FAMILIA_POR_SCRIPT_ENTRENAMIENTO[exp['script']]
     validador = SCRIPT_VALIDACION_POR_FAMILIA[familia]
 
-    # FASE 1: barrido de ventana, arquitectura base (hidden=128, layers=2)
+    # PHASE 1: window sweep, base architecture (hidden=128, layers=2)
     for w in runner.WINDOW_SIZES:
       plan.append({
           'familia': familia,
@@ -78,7 +78,7 @@ def construir_plan_visualizacion(runner):
           'etiqueta': f'w{w}',
       })
 
-    # FASE 2: configuraciones alternativas en la ventana fija
+    # PHASE 2: alternative configurations on the fixed window
     for cfg in runner.CONFIGS_EXTRA:
       plan.append({
           'familia': familia,
@@ -108,10 +108,10 @@ def mostrar(tarea, indice, total):
       '--num_layers', str(tarea['num_layers']),
       '--title', titulo,
   ]
-  # Sin capturar stdout/stderr: heredan la consola real (permite que la
-  # ventana gráfica de matplotlib se muestre con normalidad) y evita el
-  # UnicodeEncodeError de los prints con emoji que sí aparece al redirigir
-  # a un pipe (ver run_experimentos_ventana.py).
+  # Without capturing stdout/stderr: they inherit the real console (lets the
+  # matplotlib graphical window display normally) and avoids the
+  # UnicodeEncodeError from prints with emoji that does appear when redirecting
+  # to a pipe (see run_experimentos_ventana.py).
   resultado = subprocess.run(cmd, cwd=str(BASE_DIR), env=ENV_SUBPROCESO)
 
   if resultado.returncode != 0:
@@ -146,8 +146,8 @@ def main():
     print(f"⏭  Reanudando desde {args.resume_from}: se omiten {len(omitidas)} "
           'combinaciones ya revisadas.')
 
-  # Filtrar checkpoints que todavía no existen en disco (sweep incompleto o
-  # corridas que fallaron) -- avisar y seguir, no frenar toda la revisión.
+  # Filter out checkpoints that do not exist on disk yet (incomplete sweep or
+  # failed runs) -- warn and continue, do not stop the entire review.
   disponibles, faltantes = [], []
   for tarea in plan:
     if (BASE_DIR / tarea['checkpoint']).exists():

@@ -16,7 +16,7 @@ parser.add_argument('--lr', type=float, default=0.0005)
 args = parser.parse_args()
 
 # ==========================================
-# 1. CONFIGURACIÓN Y CARGA DE DATOS (MODELO V7 SINGLE-STREAM)
+# 1. CONFIGURATION AND DATA LOADING (V7 SINGLE-STREAM MODEL)
 # ==========================================
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(
@@ -28,9 +28,9 @@ PATH_DATASET_NPY = 'dataset_v07_real_meta_tension_sinRot_filt.npy'
 PATH_DATASET_JSON = 'dataset_v07_real_meta_tension_sinRot_filt_params.json'
 PATH_PESOS_SALIDA = args.output
 
-# Cargar matrices escaladas [-1, 1]
+# Load scaled matrices [-1, 1]
 data_v7 = np.load(PATH_DATASET_NPY, allow_pickle=True).item()
-X_raw = data_v7['X']  # shape: (N, 13) -> 9 cinemáticos + 4 tensiones
+X_raw = data_v7['X']  # shape: (N, 13) -> 9 kinematic + 4 tensions
 Y_raw = data_v7['Y']  # shape: (N, 3)  -> rel_x, rel_y, rel_z
 
 with open(PATH_DATASET_JSON, 'r') as f:
@@ -44,14 +44,14 @@ print(
 )
 
 # ==========================================
-# 2. VENTANADO CON SPLIT TRAIN/VAL REPARTIDO Y SIN FUGA
+# 2. WINDOWING WITH DISTRIBUTED, LEAK-FREE TRAIN/VAL SPLIT
 # ==========================================
-# La grabación se divide en N_BLOQUES contiguos a lo largo de TODA la
-# secuencia (no solo el tramo final); una fracción FRAC_VAL de esos
-# bloques, repartidos uniformemente, se reserva para validación. Cualquier
-# ventana cuyo rango de filas cruce el borde entre un bloque de train y uno
-# de val se descarta por completo, así ningún par comparte un solo paso
-# entre ambos conjuntos (misma estrategia que train_v8_time_100_2.py).
+# The recording is divided into N_BLOQUES contiguous blocks across the WHOLE
+# sequence (not just the final stretch); a fraction FRAC_VAL of those
+# blocks, uniformly distributed, is reserved for validation. Any
+# window whose row range crosses the border between a train block and a
+# val block is discarded entirely, so no pair shares a single step
+# between the two sets (same strategy as train_v8_time_100_2.py).
 WINDOW_SIZE = args.window_size
 FRAC_VAL = 0.10
 N_BLOQUES = 20
@@ -99,7 +99,7 @@ X_val, Y_val = split['val']
 
 print(f'📦 Muestras de entrenamiento: {len(X_train)} | Muestras de validación: {len(X_val)}')
 
-# DataLoaders independientes
+# Independent DataLoaders
 train_loader = DataLoader(
     TensorDataset(
         torch.tensor(X_train, dtype=torch.float32),
@@ -115,12 +115,12 @@ val_loader = DataLoader(
         torch.tensor(Y_val, dtype=torch.float32),
     ),
     batch_size=64,
-    shuffle=False,  # En validación se mantiene el orden sin shuffle
+    shuffle=False,  # In validation the order is kept, without shuffle
 )
 
 
 # ==========================================
-# 3. PÉRDIDA FÍSICA FUSIONADA (PINN LOSS)
+# 3. FUSED PHYSICS LOSS (PINN LOSS)
 # ==========================================
 class RobotBlandoLoss(nn.Module):
 
@@ -155,7 +155,7 @@ class RobotBlandoLoss(nn.Module):
   def forward(self, y_pred, y_true):
     loss_base = self.base_loss(y_pred, y_true)
 
-    # Desescalar predicciones a metros
+    # Unscale predictions to meters
     x_real = self.min_x + (y_pred[:, 0] + 1.0) * (self.max_x - self.min_x) / 2.0
     y_real = self.min_y + (y_pred[:, 1] + 1.0) * (self.max_y - self.min_y) / 2.0
     z_real = self.min_z + (y_pred[:, 2] + 1.0) * (self.max_z - self.min_z) / 2.0
@@ -180,7 +180,7 @@ criterion = RobotBlandoLoss(y_params=Y_TRANS, w_pinn=0.05)
 
 
 # ==========================================
-# 4. ARQUITECTURA SINGLE-STREAM LSTM (V7)
+# 4. SINGLE-STREAM LSTM ARCHITECTURE (V7)
 # ==========================================
 class V7SingleStreamLSTM(nn.Module):
 
@@ -194,7 +194,7 @@ class V7SingleStreamLSTM(nn.Module):
   ):
     super(V7SingleStreamLSTM, self).__init__()
 
-    # LSTM unificada para las 13 características de entrada
+    # Unified LSTM for the 13 input features
     self.lstm = nn.LSTM(
         input_size,
         hidden_size,
@@ -204,7 +204,7 @@ class V7SingleStreamLSTM(nn.Module):
 
     self.dropout = nn.Dropout(dropout)
 
-    # Capas totalmente conectadas de salida
+    # Fully connected output layers
     self.fc = nn.Sequential(
         nn.Linear(hidden_size, 64),
         nn.ReLU(),
@@ -216,7 +216,7 @@ class V7SingleStreamLSTM(nn.Module):
     # x shape: (batch_size, window_size, 13)
     out, _ = self.lstm(x)
 
-    # Tomar el último paso temporal de la secuencia
+    # Take the last time step of the sequence
     last_step = out[:, -1, :]
 
     return self.fc(last_step)
@@ -232,13 +232,13 @@ model = V7SingleStreamLSTM(
 
 optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
 
-# SCHEDULER AJUSTADO
+# ADJUSTED SCHEDULER
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(
     optimizer, mode='min', factor=0.5, patience=15, threshold=1e-5, min_lr=1e-5
 )
 
 # ==========================================
-# 5. BUCLE DE ENTRENAMIENTO Y VALIDACIÓN
+# 5. TRAINING AND VALIDATION LOOP
 # ==========================================
 EPOCHS = 100
 best_val_loss = float('inf')
@@ -249,7 +249,7 @@ print(
 )
 
 for epoch in range(EPOCHS):
-  # --- FASE 1: ENTRENAMIENTO ---
+  # --- PHASE 1: TRAINING ---
   model.train()
   train_loss = 0.0
 
@@ -268,7 +268,7 @@ for epoch in range(EPOCHS):
 
   avg_train_loss = train_loss / len(train_loader)
 
-  # --- FASE 2: VALIDACIÓN ---
+  # --- PHASE 2: VALIDATION ---
   model.eval()
   val_loss = 0.0
 
@@ -283,10 +283,10 @@ for epoch in range(EPOCHS):
 
   avg_val_loss = val_loss / len(val_loader)
 
-  # SCHEDULER EVALÚA PÉRDIDA DE VALIDACIÓN
+  # SCHEDULER EVALUATES VALIDATION LOSS
   scheduler.step(avg_val_loss)
 
-  # CHECKPOINT MEJOR MODELO
+  # BEST MODEL CHECKPOINT
   if avg_val_loss < best_val_loss:
     best_val_loss = avg_val_loss
     torch.save(model.state_dict(), PATH_PESOS_SALIDA)

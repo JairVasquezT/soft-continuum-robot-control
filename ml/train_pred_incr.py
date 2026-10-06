@@ -8,25 +8,25 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, Subset
 
 # =====================================================================
-# 1. CONFIGURACIÓN Y HIPERPARÁMETROS
+# 1. CONFIGURATION AND HYPERPARAMETERS
 # =====================================================================
-# NOTA: 'corto' (grabación independiente) YA NO se usa acá para validar --
-# se reserva 100% como test ciego final (dataset_valid_pred_v8.py), sin
-# tocarse nunca durante el entrenamiento. Antes se usaba como val_loader
-# Y como "test" reportado al final, lo cual sesga esa métrica (el checkpoint
-# se elegía justamente por rendir bien ahí). La validación ahora sale de
-# 'largo' mismo, con el mismo split por bloques distribuidos que
-# train_v8_time_100_2.py (ver sección 4).
+# NOTE: 'corto' (independent recording) is NO LONGER used here for validation --
+# it is reserved 100% as the final blind test (dataset_valid_pred_v8.py), without
+# ever being touched during training. It used to be used as val_loader
+# AND as the "test" reported at the end, which biases that metric (the checkpoint
+# was chosen precisely for performing well there). Validation now comes from
+# 'largo' itself, with the same distributed-block split as
+# train_v8_time_100_2.py (see section 4).
 PATH_DATASET = 'dataset_pred_v08_completo_10_conRot_directo_filt.npy'
 PATH_METADATA = 'dataset_pred_v08_completo_10_conRot_directo_filt_params.json'
-# NOTA: este script predice DESPLAZAMIENTOS INCREMENTALES relativos a t0 (ver
-# PINNLossMPC más abajo), por lo que el .npy necesita la clave 'Y_t0' --
-# regenerar con dataset_pred_filt.py (ya actualizado para guardarla) si el
-# archivo existente es de antes de este cambio.
+# NOTE: this script predicts INCREMENTAL DISPLACEMENTS relative to t0 (see
+# PINNLossMPC below), so the .npy needs the key 'Y_t0' --
+# regenerate with dataset_pred_filt.py (already updated to save it) if the
+# existing file predates this change.
 
-# Ganancias de PINNLossMPC parametrizables por CLI (ver run_experimentos_pesos_loss.py
-# para el barrido de 16 combinaciones) -- los defaults reproducen el
-# comportamiento actual si se corre el script sin argumentos.
+# PINNLossMPC gains configurable via CLI (see run_experimentos_pesos_loss.py
+# for the sweep of 16 combinations) -- the defaults reproduce the
+# current behavior if the script is run without arguments.
 parser = argparse.ArgumentParser()
 parser.add_argument('--output', type=str, default='best_mpc_pinn_predictor_incr_2.pth')
 parser.add_argument('--epochs', type=int, default=100)
@@ -53,14 +53,14 @@ DROPOUT = 0.1
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'🚀 Entrenando en dispositivo: {DEVICE}')
 
-# Cargar parámetros de escalado desde el JSON
+# Load scaling parameters from the JSON
 with open(PATH_METADATA, 'r') as f:
   metadata = json.load(f)
 params_y = metadata['Y_transformer']
 
 
 # =====================================================================
-# 2. FUNCIÓN DE PÉRDIDA INFORMADA POR LA FÍSICA (PINN LOSS)
+# 2. PHYSICS-INFORMED LOSS FUNCTION (PINN LOSS)
 # =====================================================================
 class PINNLossMPC(nn.Module):
 
@@ -75,7 +75,7 @@ class PINNLossMPC(nn.Module):
       w_speed=0.0,
       w_smooth=0.2,
       w_quat=0.0,
-      max_step_dist=0.003,  # 1.0 cm por paso (16.7 ms)
+      max_step_dist=0.003,  # 1.0 cm per step (16.7 ms)
       pesos_ejes_mse=(2.0, 1.0, 2.0),  # [X, Y, Z]
   ):
     super(PINNLossMPC, self).__init__()
@@ -103,8 +103,8 @@ class PINNLossMPC(nn.Module):
     self.max_z = params_y['rel_z']['max_t']
 
   def desescalar_xyz(self, y_scaled):
-    # Desescala una POSICIÓN ABSOLUTA en [-1,1] a metros reales (lleva el
-    # offset/bias "+1"+min propio de esa escala).
+    # Unscales an ABSOLUTE POSITION in [-1,1] to real meters (it carries the
+    # "+1"+min offset/bias specific to that scale).
     x_real = (
         self.min_x + (y_scaled[:, :, 0] + 1.0) * (self.max_x - self.min_x) / 2.0
     )
@@ -117,40 +117,40 @@ class PINNLossMPC(nn.Module):
     return x_real, y_real, z_real
 
   def desescalar_delta_xyz(self, delta_scaled_xyz):
-    # Desescala un DESPLAZAMIENTO (diferencia entre dos posiciones ya en
-    # [-1,1]) a metros reales -- SIN el offset/bias de desescalar_xyz: un
-    # delta no tiene "origen" propio. Si escalado = 2*real/(max-min),
-    # entonces real = escalado*(max-min)/2. delta_scaled_xyz: [..., 3].
+    # Unscales a DISPLACEMENT (difference between two positions already in
+    # [-1,1]) to real meters -- WITHOUT the offset/bias of desescalar_xyz: a
+    # delta has no "origin" of its own. If scaled = 2*real/(max-min),
+    # then real = scaled*(max-min)/2. delta_scaled_xyz: [..., 3].
     dx = delta_scaled_xyz[..., 0] * (self.max_x - self.min_x) / 2.0
     dy = delta_scaled_xyz[..., 1] * (self.max_y - self.min_y) / 2.0
     dz = delta_scaled_xyz[..., 2] * (self.max_z - self.min_z) / 2.0
     return torch.stack([dx, dy, dz], dim=-1)
 
   def forward(self, y_pred, y_true, y_t0):
-    # y_pred: salida cruda de la red, [batch, T_OUT, output_dim] -- los
-    # canales [:3] son el DESPLAZAMIENTO INCREMENTAL (ΔX, ΔY, ΔZ) predicho
-    # respecto a t0, en el mismo espacio escalado [-1,1] que la posición
-    # absoluta (ver desescalar_delta_xyz). y_true: Y_fut tal cual sale del
-    # dataset (posición ABSOLUTA escalada). y_t0: posición/orientación
-    # ABSOLUTA escalada en t0 (último paso del historial), [batch,
-    # output_dim] -- es dato conocido (ground truth), nunca predicho, así
-    # que el "error" en t0 es 0 por construcción: la red ya no tiene que
-    # redescubrir la posición actual a partir del historial, solo el
-    # movimiento incremental desde ahí, un objetivo de escala mucho menor
-    # que la posición absoluta.
+    # y_pred: raw network output, [batch, T_OUT, output_dim] -- the
+    # channels [:3] are the predicted INCREMENTAL DISPLACEMENT (ΔX, ΔY, ΔZ)
+    # relative to t0, in the same scaled space [-1,1] as the absolute
+    # position (see desescalar_delta_xyz). y_true: Y_fut exactly as it comes from the
+    # dataset (scaled ABSOLUTE position). y_t0: scaled ABSOLUTE
+    # position/orientation at t0 (last step of the history), [batch,
+    # output_dim] -- it is known data (ground truth), never predicted, so
+    # the "error" at t0 is 0 by construction: the network no longer has to
+    # rediscover the current position from the history, only the
+    # incremental motion from there, a target of much smaller scale
+    # than the absolute position.
     y_true_delta_xyz = y_true[:, :, :3] - y_t0[:, :3].unsqueeze(1)
 
-    # 1. MSE Ponderado por Eje sobre el DELTA escalado
+    # 1. Axis-Weighted MSE over the scaled DELTA
     error_xyz_escalado = (y_pred[:, :, :3] - y_true_delta_xyz) ** 2
     loss_mse_ponderado = torch.mean(error_xyz_escalado * self.pesos_ejes_mse)
 
-    # 2. Desescalar los deltas predicho y real a metros reales
+    # 2. Unscale the predicted and real deltas to real meters
     delta_pred = self.desescalar_delta_xyz(y_pred[:, :, :3])
     delta_true = self.desescalar_delta_xyz(y_true_delta_xyz)
 
-    # 3. Reconstruir la posición ABSOLUTA real sumando t0 -- necesaria para
-    # las penalizaciones geométricas, que son límites físicos fijos del
-    # robot en el marco de la base (no relativos a t0).
+    # 3. Reconstruct the real ABSOLUTE position by adding t0 -- needed for
+    # the geometric penalties, which are fixed physical limits of the
+    # robot in the base frame (not relative to t0).
     x_t0, y_t0_real, z_t0 = self.desescalar_xyz(y_t0.unsqueeze(1))
     pos_t0_real = torch.stack([x_t0, y_t0_real, z_t0], dim=-1)  # [batch, 1, 3]
 
@@ -160,15 +160,15 @@ class PINNLossMPC(nn.Module):
     x_pred, y_pred_real, z_pred = pos_pred[..., 0], pos_pred[..., 1], pos_pred[..., 2]
     x_true, y_true_real, z_true = pos_true[..., 0], pos_true[..., 1], pos_true[..., 2]
 
-    # 4. Dirección en 3D -- el offset de t0 se cancela entre pasos
-    # consecutivos, así que da igual usar pos_pred/pos_true o delta_pred/
-    # delta_true directamente; se usa pos_* para no romper el resto de la
-    # fórmula tal cual estaba.
+    # 4. Direction in 3D -- the t0 offset cancels between
+    # consecutive steps, so it makes no difference whether pos_pred/pos_true or delta_pred/
+    # delta_true are used directly; pos_* is used so as not to break the rest of the
+    # formula as it was.
     dir_pred_3d = pos_pred[:, 1:, :] - pos_pred[:, :-1, :]
     dir_true_3d = pos_true[:, 1:, :] - pos_true[:, :-1, :]
 
     norm_true_3d = torch.norm(dir_true_3d, dim=-1)
-    mask_movimiento = norm_true_3d > 0.0005  # Movimientos > 0.5 mm
+    mask_movimiento = norm_true_3d > 0.0005  # Movements > 0.5 mm
 
     cos_sim_3d = torch.nn.functional.cosine_similarity(
         dir_pred_3d, dir_true_3d, dim=-1, eps=1e-6
@@ -180,7 +180,7 @@ class PINNLossMPC(nn.Module):
     else:
       loss_direction_3d = torch.tensor(0.0, device=y_pred.device)
 
-    # 4. Geometría Espacial
+    # 4. Spatial Geometry
     dist_esferica_cuadrada = x_pred**2 + y_pred_real**2 + z_pred**2
     dist_cilindrica_cuadrada = x_pred**2 + z_pred**2
 
@@ -194,7 +194,7 @@ class PINNLossMPC(nn.Module):
         + self.w_cyl_max * torch.mean(pen_cyl_max)
     )
 
-    # 5. Velocidad y Suavizado
+    # 5. Velocity and Smoothing
     paso_diffs = pos_pred[:, 1:, :] - pos_pred[:, :-1, :]
     dist_por_paso = torch.norm(paso_diffs, dim=-1)
 
@@ -210,7 +210,7 @@ class PINNLossMPC(nn.Module):
       norm_q = torch.norm(q, dim=-1)
       loss_quat = self.w_quat * torch.mean((norm_q - 1.0) ** 2)
 
-    # Pérdida Total PINN
+    # Total PINN Loss
     total_loss = (
         self.w_mse * loss_mse_ponderado
         + self.w_direction_3d * loss_direction_3d
@@ -223,7 +223,7 @@ class PINNLossMPC(nn.Module):
 
 
 # =====================================================================
-# 3. DATASET Y MODELO (IGUAL QUE ANTES)
+# 3. DATASET AND MODEL (SAME AS BEFORE)
 # =====================================================================
 class MPCDataset(Dataset):
 
@@ -286,17 +286,17 @@ class MPCDirectPredictor(nn.Module):
 
 
 # =====================================================================
-# 4. PREPARACIÓN DE DATOS -- SPLIT TRAIN/VAL REPARTIDO Y SIN FUGA (sobre 'largo')
+# 4. DATA PREPARATION -- DISTRIBUTED, LEAK-FREE TRAIN/VAL SPLIT (over 'largo')
 # =====================================================================
-# Igual estrategia que train_v8_time_100_2.py: 'largo' se divide en
-# N_BLOQUES contiguos a lo largo de TODA la grabación (no solo el tramo
-# final); una fracción FRAC_VAL de esos bloques, repartidos uniformemente,
-# se reserva para validación. La diferencia con v8 es que acá el ventaneo
-# YA ocurrió en dataset_pred_filt.py (cada muestra k de X_hist/U_cand/Y_fut
-# cubre un rango de T_IN+T_OUT filas originales) -- por eso, en vez de
-# generar ventanas nuevas, se descarta cualquier muestra k cuyo margen de
-# solapamiento (k hasta k+T_IN+T_OUT) cruce un borde entre un bloque de
-# train y uno de val, para que ningún par comparta filas originales.
+# Same strategy as train_v8_time_100_2.py: 'largo' is divided into
+# N_BLOQUES contiguous blocks across the WHOLE recording (not just the final
+# stretch); a fraction FRAC_VAL of those blocks, uniformly distributed,
+# is reserved for validation. The difference with v8 is that here the windowing
+# ALREADY happened in dataset_pred_filt.py (each sample k of X_hist/U_cand/Y_fut
+# covers a range of T_IN+T_OUT original rows) -- so, instead of
+# generating new windows, any sample k whose overlap margin
+# (k up to k+T_IN+T_OUT) crosses a border between a
+# train block and a val block is discarded, so that no pair shares original rows.
 FRAC_VAL = 0.10
 N_BLOQUES = 20
 
@@ -354,7 +354,7 @@ val_loader = DataLoader(
 )
 
 # =====================================================================
-# 5. INSTANCIACIÓN Y OPTIMIZADOR
+# 5. INSTANTIATION AND OPTIMIZER
 # =====================================================================
 model = MPCDirectPredictor(
     input_hist_dim=input_hist_dim,
@@ -366,7 +366,7 @@ model = MPCDirectPredictor(
     dropout=DROPOUT,
 ).to(DEVICE)
 
-# Criterio PINN
+# PINN criterion
 criterion = PINNLossMPC(
     params_y=params_y,
     w_mse=args.w_mse,
@@ -385,7 +385,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(
 )
 
 # =====================================================================
-# 6. ENTRENAMIENTO Y VALIDACIÓN ALINEADOS
+# 6. ALIGNED TRAINING AND VALIDATION
 # =====================================================================
 best_val_loss = float('inf')
 history_train_loss, history_val_loss = [], []
@@ -416,7 +416,7 @@ for epoch in range(1, EPOCHS + 1):
 
   train_loss /= train_size
 
-  # Validación alineada con PINN Loss
+  # Validation aligned with PINN Loss
   model.eval()
   val_loss_sum = 0.0
   val_mse_sum = 0.0
@@ -439,7 +439,7 @@ for epoch in range(1, EPOCHS + 1):
   val_loss = val_loss_sum / val_size
   val_mse = val_mse_sum / val_size
 
-  # El Scheduler y el Guardado responden a la Pérdida Total PINN
+  # The Scheduler and Saving respond to the Total PINN Loss
   scheduler.step(val_loss)
 
   history_train_loss.append(train_loss)
@@ -458,11 +458,11 @@ for epoch in range(1, EPOCHS + 1):
             'output_dim': output_dim,
             'best_val_loss': best_val_loss,
             'best_val_mse': val_mse,
-            # Los 3 primeros canales de la salida son un DESPLAZAMIENTO
-            # incremental (ΔX,ΔY,ΔZ) relativo a t0, no una posición
-            # absoluta -- cualquier script de evaluación debe sumarle la
-            # posición real en t0 antes de comparar contra la trayectoria
-            # absoluta (ver desescalar_delta_xyz/pos_t0_real en este archivo).
+            # The first 3 output channels are an incremental
+            # DISPLACEMENT (ΔX,ΔY,ΔZ) relative to t0, not an
+            # absolute position -- any evaluation script must add the
+            # real position at t0 before comparing against the
+            # absolute trajectory (see desescalar_delta_xyz/pos_t0_real in this file).
             'predice_incrementos': True,
         },
         MODEL_SAVE_PATH,

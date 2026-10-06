@@ -7,20 +7,20 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, Subset
 
 # =====================================================================
-# 1. CONFIGURACIÓN Y HIPERPARÁMETROS
+# 1. CONFIGURATION AND HYPERPARAMETERS
 # =====================================================================
-# Variante "liviana" de train_pred.py: en vez de 'completo' (17 entradas:
-# real+meta+torque+tension) + conRot (7 salidas con cuaternión), usa
-# 'real_meta' (9 entradas: tiempo + ángulos reales + ángulos objetivo) +
-# sinRot (3 salidas, solo posición) -- dataset_pred_v01_real_meta_sinRot
-# (v01 en la numeración de dataset_pred_filt.py: x_tag='real_meta' es el
-# primero del loop, y_tag='sinRot' también, de ahí v01; NO es un error de
-# nombre -- dataset_pred_v08 = 'completo'+conRot, el que usa train_pred.py).
+# "Lightweight" variant of train_pred.py: instead of 'completo' (17 inputs:
+# real+meta+torque+tension) + conRot (7 outputs with quaternion), it uses
+# 'real_meta' (9 inputs: time + real angles + target angles) +
+# sinRot (3 outputs, position only) -- dataset_pred_v01_real_meta_sinRot
+# (v01 in the numbering of dataset_pred_filt.py: x_tag='real_meta' is the
+# first of the loop, y_tag='sinRot' too, hence v01; it is NOT a naming
+# error -- dataset_pred_v08 = 'completo'+conRot, the one used by train_pred.py).
 #
-# NOTA: 'corto' (grabación independiente) NO se usa acá para validar -- se
-# reserva 100% como test ciego final, sin tocarse nunca durante el
-# entrenamiento. La validación sale de 'largo' mismo, con el mismo split
-# por bloques distribuidos que train_v8_time_100_2.py (ver sección 4).
+# NOTE: 'corto' (independent recording) is NOT used here for validation -- it is
+# reserved 100% as the final blind test, without ever being touched during
+# training. Validation comes from 'largo' itself, with the same split
+# by distributed blocks as train_v8_time_100_2.py (see section 4).
 PATH_DATASET = 'dataset_pred_v01_real_meta_sinRot_directo_filt.npy'
 PATH_METADATA = 'dataset_pred_v01_real_meta_sinRot_directo_filt_params.json'
 MODEL_SAVE_PATH = 'best_mpc_pinn_predictor_v2_realmeta.pth'
@@ -35,14 +35,14 @@ DROPOUT = 0.1
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'🚀 Entrenando en dispositivo: {DEVICE}')
 
-# Cargar parámetros de escalado desde el JSON
+# Load scaling parameters from the JSON
 with open(PATH_METADATA, 'r') as f:
   metadata = json.load(f)
 params_y = metadata['Y_transformer']
 
 
 # =====================================================================
-# 2. FUNCIÓN DE PÉRDIDA INFORMADA POR LA FÍSICA (PINN LOSS)
+# 2. PHYSICS-INFORMED LOSS FUNCTION (PINN LOSS)
 # =====================================================================
 class PINNLossMPC(nn.Module):
 
@@ -56,7 +56,7 @@ class PINNLossMPC(nn.Module):
       w_speed=5.0,
       w_smooth=2.0,
       w_quat=5.0,
-      max_step_dist=0.015,  # Máximo desplazamiento permitido por paso (1.5 cm)
+      max_step_dist=0.015,  # Maximum displacement allowed per step (1.5 cm)
   ):
     super(PINNLossMPC, self).__init__()
     self.params_y = params_y
@@ -71,7 +71,7 @@ class PINNLossMPC(nn.Module):
 
     self.mse = nn.MSELoss()
 
-    # Extraer límites para desescalar de [-1, 1] a Metros Reales
+    # Extract limits to unscale from [-1, 1] to Real Meters
     self.min_x = params_y['rel_x']['min_t']
     self.max_x = params_y['rel_x']['max_t']
     self.min_y = params_y['rel_y']['min_t']
@@ -93,17 +93,17 @@ class PINNLossMPC(nn.Module):
     return x_real, y_real, z_real
 
   def forward(self, y_pred, y_true):
-    # 1. Pérdida Principal MSE (Puntos objetivo)
+    # 1. Main MSE Loss (Target points)
     loss_mse = self.mse(y_pred, y_true)
 
-    # 2. Desescalar predicciones a Metros Reales
+    # 2. Unscale predictions to Real Meters
     x_real, y_real, z_real = self.desescalar_xyz(y_pred)
 
-    # Distancias Geométricas
+    # Geometric Distances
     dist_esferica_cuadrada = x_real**2 + y_real**2 + z_real**2
     dist_cilindrica_cuadrada = x_real**2 + z_real**2
 
-    # A) Penalizaciones Geométricas Espaciales
+    # A) Spatial Geometric Penalties
     pen_sph_max = torch.relu(dist_esferica_cuadrada - 0.335**2)
     pen_sph_min = torch.relu(0.22**2 - dist_esferica_cuadrada)
     pen_cyl_max = torch.relu(dist_cilindrica_cuadrada - 0.23**2)
@@ -114,8 +114,8 @@ class PINNLossMPC(nn.Module):
         + self.w_cyl_max * torch.mean(pen_cyl_max)
     )
 
-    # B) Restricción de Velocidad Máxima por Paso (Continuidad Física)
-    # Calcutar diferencia entre pasos consecutivos (t+1 - t, t+2 - t+1, ...)
+    # B) Maximum Per-Step Velocity Constraint (Physical Continuity)
+    # Compute difference between consecutive steps (t+1 - t, t+2 - t+1, ...)
     pos_real = torch.stack([x_real, y_real, z_real], dim=-1)  # [batch, 10, 3]
     paso_diffs = pos_real[:, 1:, :] - pos_real[:, :-1, :]  # [batch, 9, 3]
     dist_por_paso = torch.norm(paso_diffs, dim=-1)  # [batch, 9]
@@ -123,18 +123,18 @@ class PINNLossMPC(nn.Module):
     pen_velocidad = torch.relu(dist_por_paso - self.max_step_dist)
     loss_speed = self.w_speed * torch.mean(pen_velocidad)
 
-    # C) Restricción de Suavizado Temporal (Minimizar Aceleración / Jerk)
+    # C) Temporal Smoothing Constraint (Minimize Acceleration / Jerk)
     aceleracion = paso_diffs[:, 1:, :] - paso_diffs[:, :-1, :]  # [batch, 8, 3]
     loss_smooth = self.w_smooth * torch.mean(aceleracion**2)
 
-    # D) Normalización de Cuaterniones (Si existen 7 salidas)
+    # D) Quaternion Normalization (If there are 7 outputs)
     loss_quat = 0.0
     if y_pred.shape[-1] == 7:
       q = y_pred[:, :, 3:]  # [batch, 10, 4]
       norm_q = torch.norm(q, dim=-1)
       loss_quat = self.w_quat * torch.mean((norm_q - 1.0) ** 2)
 
-    # PÉRDIDA TOTAL PINN
+    # TOTAL PINN LOSS
     total_loss = (
         self.w_mse * loss_mse + loss_geom + loss_speed + loss_smooth + loss_quat
     )
@@ -142,7 +142,7 @@ class PINNLossMPC(nn.Module):
 
 
 # =====================================================================
-# 3. DATASET Y MODELO (IGUAL QUE ANTES)
+# 3. DATASET AND MODEL (SAME AS BEFORE)
 # =====================================================================
 class MPCDataset(Dataset):
 
@@ -204,17 +204,17 @@ class MPCDirectPredictor(nn.Module):
 
 
 # =====================================================================
-# 4. PREPARACIÓN DE DATOS -- SPLIT TRAIN/VAL REPARTIDO Y SIN FUGA (sobre 'largo')
+# 4. DATA PREPARATION -- DISTRIBUTED, LEAK-FREE TRAIN/VAL SPLIT (over 'largo')
 # =====================================================================
-# Igual estrategia que train_v8_time_100_2.py: 'largo' se divide en
-# N_BLOQUES contiguos a lo largo de TODA la grabación (no solo el tramo
-# final); una fracción FRAC_VAL de esos bloques, repartidos uniformemente,
-# se reserva para validación. La diferencia con v8 es que acá el ventaneo
-# YA ocurrió en dataset_pred_filt.py (cada muestra k de X_hist/U_cand/Y_fut
-# cubre un rango de T_IN+T_OUT filas originales) -- por eso, en vez de
-# generar ventanas nuevas, se descarta cualquier muestra k cuyo margen de
-# solapamiento (k hasta k+T_IN+T_OUT) cruce un borde entre un bloque de
-# train y uno de val, para que ningún par comparta filas originales.
+# Same strategy as train_v8_time_100_2.py: 'largo' is divided into
+# N_BLOQUES contiguous blocks across the WHOLE recording (not just the final
+# stretch); a fraction FRAC_VAL of those blocks, uniformly distributed,
+# is reserved for validation. The difference with v8 is that here the windowing
+# ALREADY happened in dataset_pred_filt.py (each sample k of X_hist/U_cand/Y_fut
+# covers a range of T_IN+T_OUT original rows) -- so, instead of
+# generating new windows, any sample k whose overlap margin
+# (k up to k+T_IN+T_OUT) crosses a border between a
+# train block and a val block is discarded, so that no pair shares original rows.
 FRAC_VAL = 0.10
 N_BLOQUES = 20
 
@@ -272,7 +272,7 @@ val_loader = DataLoader(
 )
 
 # =====================================================================
-# 5. INSTANCIACIÓN Y OPTIMIZADOR
+# 5. INSTANTIATION AND OPTIMIZER
 # =====================================================================
 model = MPCDirectPredictor(
     input_hist_dim=input_hist_dim,
@@ -284,7 +284,7 @@ model = MPCDirectPredictor(
     dropout=DROPOUT,
 ).to(DEVICE)
 
-# Criterio PINN
+# PINN criterion
 criterion = PINNLossMPC(params_y=params_y).to(DEVICE)
 
 optimizer = optim.AdamW(
@@ -295,7 +295,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(
 )
 
 # =====================================================================
-# 6. ENTRENAMIENTO
+# 6. TRAINING
 # =====================================================================
 best_val_mse = float('inf')
 history_train_loss, history_val_mse = [], []
@@ -316,7 +316,7 @@ for epoch in range(1, EPOCHS + 1):
     optimizer.zero_grad()
     predictions = model(batch_x, batch_u)
 
-    # Calcular PINN Loss
+    # Compute PINN Loss
     total_loss, pure_mse = criterion(predictions, batch_y)
     total_loss.backward()
 
@@ -326,7 +326,7 @@ for epoch in range(1, EPOCHS + 1):
 
   train_loss /= train_size
 
-  # Validación
+  # Validation
   model.eval()
   val_mse_sum = 0.0
 

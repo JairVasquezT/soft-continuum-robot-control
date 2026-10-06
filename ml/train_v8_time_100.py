@@ -6,7 +6,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
 # ==========================================
-# 1. CONFIGURACIÓN Y CARGA DE DATOS (VERSION V8 COMPLETO)
+# 1. CONFIGURATION AND DATA LOADING (VERSION V8 COMPLETO)
 # ==========================================
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(
@@ -19,7 +19,7 @@ PATH_DATASET_JSON = 'dataset_v01_completo_sinRot_filt_params.json'
 PATH_DATASET_VAL_NPY = 'dataset_corto_v01_completo_sinRot_filt.npy'
 PATH_PESOS_SALIDA = 'soft_robot_lstm_v8_17_time.pth'
 
-# Cargar matrices escaladas
+# Load scaled matrices
 data_v8 = np.load(PATH_DATASET_NPY, allow_pickle=True).item()
 X_raw = data_v8['X']  # shape: (N, 17) -> 1 delta_t + 4 real_m + 4 meta_m + 4 couple + 4 tension
 Y_raw = data_v8['Y']  # shape: (N, 3)  -> rel_x, rel_y, rel_z
@@ -28,14 +28,14 @@ data_v8_val = np.load(PATH_DATASET_VAL_NPY, allow_pickle=True).item()
 X_raw_val = data_v8_val['X']
 Y_raw_val = data_v8_val['Y']
 
-# Cargar los parámetros de normalización JSON
+# Load the JSON normalization parameters
 with open(PATH_DATASET_JSON, 'r') as f:
   norm_params = json.load(f)
 
 X_TRANS = norm_params['X_transformer']
 Y_TRANS = norm_params['Y_transformer']
 
-# Confirmar la dimensión dinámica de entrada
+# Confirm the dynamic input dimension
 num_features_input = X_raw.shape[1]
 print(
     f"📊 Características detectadas en entrada (X): {num_features_input} |"
@@ -44,7 +44,7 @@ print(
 
 
 # ==========================================
-# 2. CREACIÓN DE VENTANAS TEMPORALES (100% DE LOS DATOS)
+# 2. CREATION OF TEMPORAL WINDOWS (100% OF THE DATA)
 # ==========================================
 def crear_secuencias(X, Y, window_size=90):
   X_seq, Y_seq = [], []
@@ -63,14 +63,14 @@ X_windows_val, Y_windows_val = crear_secuencias(
 print(f"📦 Total de Muestras para Entrenamiento (100% de 'largo'): {len(X_windows)}")
 print(f"🧪 Muestras de Validación ('corto', independiente): {len(X_windows_val)}")
 
-# Convertir a Tensores de PyTorch
+# Convert to PyTorch Tensors
 X_tensor = torch.tensor(X_windows, dtype=torch.float32)
 Y_tensor = torch.tensor(Y_windows, dtype=torch.float32)
 
 X_val_tensor = torch.tensor(X_windows_val, dtype=torch.float32)
 Y_val_tensor = torch.tensor(Y_windows_val, dtype=torch.float32)
 
-# DataLoader con el 100% de 'largo' para entrenar
+# DataLoader with 100% of 'largo' for training
 train_loader = DataLoader(
     TensorDataset(X_tensor, Y_tensor), batch_size=64, shuffle=True
 )
@@ -80,7 +80,7 @@ val_loader = DataLoader(
 
 
 # ==========================================
-# 3. PÉRDIDA FÍSICA FUSIONADA (PINN LOSS)
+# 3. FUSED PHYSICS LOSS (PINN LOSS)
 # ==========================================
 class RobotBlandoLoss(nn.Module):
 
@@ -93,14 +93,14 @@ class RobotBlandoLoss(nn.Module):
       w_cyl_max=1.0,
   ):
     super(RobotBlandoLoss, self).__init__()
-    # Huber Loss para alta precisión en errores sub-milimétricos
+    # Huber Loss for high precision in sub-millimeter errors
     self.base_loss = nn.HuberLoss(delta=0.01)
     self.w_pinn = w_pinn
     self.w_sph_max = w_sph_max
     self.w_sph_min = w_sph_min
     self.w_cyl_max = w_cyl_max
 
-    # Extraer límites reales del JSON para la transformación inversa
+    # Extract real limits from the JSON for the inverse transformation
     self.min_x, self.max_x = (
         y_params['rel_x']['min_t'],
         y_params['rel_x']['max_t'],
@@ -115,19 +115,19 @@ class RobotBlandoLoss(nn.Module):
     )
 
   def forward(self, y_pred, y_true):
-    # 1. Pérdida matemática base en espacio escalado [-1, 1]
+    # 1. Base mathematical loss in scaled space [-1, 1]
     loss_base = self.base_loss(y_pred, y_true)
 
-    # 2. Desescalar predicciones a coordenadas físicas (Metros)
+    # 2. Unscale predictions to physical coordinates (Meters)
     x_real = self.min_x + (y_pred[:, 0] + 1.0) * (self.max_x - self.min_x) / 2.0
     y_real = self.min_y + (y_pred[:, 1] + 1.0) * (self.max_y - self.min_y) / 2.0
     z_real = self.min_z + (y_pred[:, 2] + 1.0) * (self.max_z - self.min_z) / 2.0
 
-    # 3. Barreras geométricas espacio 3D
+    # 3. 3D-space geometric barriers
     dist_esferica_cuadrada = x_real**2 + y_real**2 + z_real**2
     dist_cilindrica_cuadrada = x_real**2 + z_real**2
 
-    # Restricciones
+    # Constraints
     pen_sph_max = torch.relu(dist_esferica_cuadrada - 0.335**2)
     pen_sph_min = torch.relu(0.22**2 - dist_esferica_cuadrada)
     pen_cyl_max = torch.relu(dist_cilindrica_cuadrada - 0.23**2)
@@ -145,7 +145,7 @@ criterion = RobotBlandoLoss(y_params=Y_TRANS, w_pinn=0.05)
 
 
 # ==========================================
-# 4. ARQUITECTURA LSTM ADAPTABLE
+# 4. ADAPTABLE LSTM ARCHITECTURE
 # ==========================================
 class SoftRobotLSTM(nn.Module):
 
@@ -184,7 +184,7 @@ class SoftRobotLSTM(nn.Module):
     return self.fc(out_regularized)
 
 
-# Instanciar el modelo con las 17 entradas del Dataset V8
+# Instantiate the model with the 17 inputs of the V8 Dataset
 model = SoftRobotLSTM(
     input_size=num_features_input,
     hidden_size=128,
@@ -193,14 +193,14 @@ model = SoftRobotLSTM(
     dropout=0.2,
 ).to(device)
 
-# Optimizador AdamW y Scheduler
+# AdamW optimizer and Scheduler
 optimizer = optim.AdamW(model.parameters(), lr=0.0005, weight_decay=1e-4)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(
     optimizer, mode='min', factor=0.5, patience=8, min_lr=1e-6
 )
 
 # ==========================================
-# 5. BUCLE DE ENTRENAMIENTO (100% de 'largo') + VALIDACIÓN EN 'corto'
+# 5. TRAINING LOOP (100% of 'largo') + VALIDATION ON 'corto'
 # ==========================================
 EPOCHS = 160
 history_loss = []
@@ -231,7 +231,7 @@ for epoch in range(EPOCHS):
   avg_loss = epoch_loss / len(train_loader)
   history_loss.append(avg_loss)
 
-  # --- VALIDACIÓN en 'corto' (grabación independiente de 'largo') ---
+  # --- VALIDATION on 'corto' (recording independent from 'largo') ---
   model.eval()
   val_epoch_loss = 0.0
   with torch.no_grad():
@@ -244,7 +244,7 @@ for epoch in range(EPOCHS):
   avg_val_loss = val_epoch_loss / len(val_loader)
   history_val_loss.append(avg_val_loss)
 
-  # Actualizar la tasa de aprendizaje y guardar el mejor checkpoint según VAL
+  # Update the learning rate and save the best checkpoint according to VAL
   scheduler.step(avg_val_loss)
 
   if avg_val_loss < best_val_loss:

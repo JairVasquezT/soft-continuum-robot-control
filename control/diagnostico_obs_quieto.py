@@ -1,21 +1,21 @@
-r"""Busca tramos donde los 4 motores quedaron EXACTAMENTE quietos (mismos
+r"""Looks for stretches where the 4 motors stayed EXACTLY still (same
 
-ticks reales en filas consecutivas) y mide cuánto varió la posición
-reportada (Obs y, si está disponible, Opti) durante esos tramos.
+real ticks in consecutive rows) and measures how much the reported
+position varied (Obs and, if available, Opti) during those stretches.
 
-Si Obs varía bastante con los motores quietos, es la propia estimación del
-observador LSTM la que está inestable/derivando -- no es el robot moviéndose
-de verdad. Si Opti (cámara real) también varía en la misma magnitud, sí es
-movimiento físico real (asentamiento del cable, etc).
+If Obs varies considerably with the motors still, it is the LSTM
+observer's own estimate that is unstable/drifting -- it is not the robot
+actually moving. If Opti (real camera) also varies by the same magnitude, then it is
+real physical movement (cable settling, etc).
 
-Uso: python continuum_robot/control/diagnostico_obs_quieto.py ruta\al\mpc_experiment_YYYYMMDD_HHMMSS.csv
+Usage: python continuum_robot/control/diagnostico_obs_quieto.py ruta\al\mpc_experiment_YYYYMMDD_HHMMSS.csv
 """
 import csv
 import math
 import sys
 
 path = sys.argv[1]
-MIN_FILAS_QUIETO = 10  # racha mínima de filas con ticks idénticos para contar
+MIN_FILAS_QUIETO = 10  # minimum run of rows with identical ticks to count
 
 rows = []
 header = None
@@ -28,8 +28,8 @@ with open(path, 'r', encoding='utf-8', newline='') as f:
         if len(r) == len(header):
             rows.append(r)
 
-# La col. 0 real del CSV es el timestamp de escritura (no está en `header`,
-# que describe desde la col. 1 en adelante -- ver run_control_loop).
+# The real col. 0 of the CSV is the write timestamp (it is not in `header`,
+# which describes from col. 1 onward -- see run_control_loop).
 idx = {name: i + 1 for i, name in enumerate(header)}
 
 
@@ -46,7 +46,7 @@ if not all(c in idx for c in REAL_COLS):
           'con la versión actualizada de MPC.py primero.')
     sys.exit(1)
 
-# 1. Detectar rachas de ticks reales 100% idénticos
+# 1. Detect runs of 100% identical real ticks
 rachas = []
 inicio = 0
 ticks_prev = None
@@ -80,7 +80,7 @@ for (a, b) in rachas:
           f'| magnitud total ~{obs_range_norm:.2f} mm')
 
     opti_vals = [[col(rows[i], c) for c in OPTI_COLS] for i in range(a, b + 1)]
-    tiene_opti = not any(v != v for fila in opti_vals for v in fila)  # detecta NaN
+    tiene_opti = not any(v != v for fila in opti_vals for v in fila)  # detects NaN
     if tiene_opti:
         opti_range = [
             max(v[k] for v in opti_vals) - min(v[k] for v in opti_vals) for k in range(3)

@@ -1,14 +1,14 @@
-"""Ejemplo: Sincronización OptiTrack + Dynamixel con 5 puntos de muestreo.
+"""Example: OptiTrack + Dynamixel synchronization with 5 sampling points.
 
-Este script:
-1. Se conecta a Motive 2.2.0 vía NatNet a 180Hz
-2. Ejecuta movimientos de los 4 motores en los 5 puntos de muestreo por motor
-3. Graba en 3 CSVs:
-   - dynamixel_*.csv: posiciones de motores (una línea por movimiento, todos los motores)
-   - optitrack_*.csv: datos de OptiTrack (una línea por frame)
-   - sync_*.csv: datos alineados a 60Hz (OptiTrack + Dynamixel sincronizados)
+This script:
+1. Connects to Motive 2.2.0 via NatNet at 180Hz
+2. Runs movements of the 4 motors at the 5 sampling points per motor
+3. Records to 3 CSVs:
+   - dynamixel_*.csv: motor positions (one line per movement, all motors)
+   - optitrack_*.csv: OptiTrack data (one line per frame)
+   - sync_*.csv: data aligned at 60Hz (OptiTrack + Dynamixel synchronized)
 
-Uso:
+Usage:
     python -m continuum_robot.examples.optitrack_dynamixel_sync [--no-simulate] [--sync-rate 60]
 """
 
@@ -30,7 +30,7 @@ from continuum_robot.control.trajectories import all_combinations
 
 
 class DataBuffer:
-    """Buffer thread-safe para datos de sensores."""
+    """Thread-safe buffer for sensor data."""
     def __init__(self, maxlen=100):
         self.buffer = deque(maxlen=maxlen)
         self._lock = threading.Lock()
@@ -49,17 +49,17 @@ class DataBuffer:
 
 
 def run_sync_experiment(sampling_rate: int = 180, sync_rate: int = None, simulate: bool = True, output_dir: str = None):
-    """Ejecuta el experimento sincronizado.
+    """Runs the synchronized experiment.
     
     Args:
-        sampling_rate: Frecuencia de OptiTrack en Hz
-        sync_rate: Frecuencia de sincronización para CSV combinado (default: cfg.SYNC_SAMPLING_RATE)
-        simulate: Si True, no usa hardware real (solo simulación)
-        output_dir: Directorio para guardar los logs
+        sampling_rate: OptiTrack frequency in Hz
+        sync_rate: Synchronization frequency for the combined CSV (default: cfg.SYNC_SAMPLING_RATE)
+        simulate: If True, does not use real hardware (simulation only)
+        output_dir: Directory to save the logs
     """
-    # ========== Capturar timestamp al inicio para garantizar unicidad ==========
+    # ========== Capture timestamp at the start to guarantee uniqueness ==========
     start_time = datetime.now()
-    timestamp = start_time.strftime('%Y%m%d_%H%M%S_%f')[:-3]  # %f da microsegundos, se trimea a milisegundos
+    timestamp = start_time.strftime('%Y%m%d_%H%M%S_%f')[:-3]  # %f gives microseconds, trimmed to milliseconds
     
     if sync_rate is None:
         sync_rate = cfg.SYNC_SAMPLING_RATE
@@ -86,7 +86,7 @@ def run_sync_experiment(sampling_rate: int = 180, sync_rate: int = None, simulat
     print(f"  - Sincronizado: {sync_log}")
     print()
     
-    # ========== Inicializar Dynamixel ==========
+    # ========== Initialize Dynamixel ==========
     print("Conectando Dynamixel...")
     try:
         dxl_controller = create_controller(simulate=simulate, port=cfg.SERIAL_PORT, baudrate=cfg.BAUDRATE)
@@ -100,7 +100,7 @@ def run_sync_experiment(sampling_rate: int = 180, sync_rate: int = None, simulat
         print(f"  ✗ Error: {e}")
         return
     
-    # ========== Inicializar OptiTrack ==========
+    # ========== Initialize OptiTrack ==========
     print(f"Conectando OptiTrack/Motive a {cfg.OPTITRACK_HOST}:{cfg.OPTITRACK_PORT} @ {sampling_rate}Hz...")
     optitrack_client = None
     try:
@@ -114,7 +114,7 @@ def run_sync_experiment(sampling_rate: int = 180, sync_rate: int = None, simulat
         print(f"  ⚠ Warning: No se pudo conectar a OptiTrack - {e}")
         print(f"    (continuando solo con Dynamixel)")
     
-    # ========== Preparar datos ==========
+    # ========== Prepare data ==========
     combos = list(all_combinations(cfg.MOTOR_IDS))
     print(f"\n✓ Generadas {len(combos)} combinaciones de 5 puntos por motor")
     print(f"  Puntos por motor:")
@@ -122,11 +122,11 @@ def run_sync_experiment(sampling_rate: int = 180, sync_rate: int = None, simulat
         points = cfg.SAMPLING_POINTS[mid]
         print(f"    Motor {mid}: {points}")
     
-    # ========== Buffers de datos ==========
+    # ========== Data buffers ==========
     dxl_buffer = DataBuffer(maxlen=1000)
     optitrack_buffer = DataBuffer(maxlen=5000)
     
-    # ========== CSV Dynamixel (una línea por muestreo) ==========
+    # ========== Dynamixel CSV (one line per sample) ==========
     dxl_file = open(dynamixel_log, 'w', newline='')
     dxl_writer = csv.writer(dxl_file)
     dxl_header = ['timestamp', 'combo_idx', 'combo_total']
@@ -135,17 +135,17 @@ def run_sync_experiment(sampling_rate: int = 180, sync_rate: int = None, simulat
     dxl_writer.writerow(dxl_header)
     dxl_file.flush()
     
-    # ========== CSV OptiTrack (una línea por frame) ==========
+    # ========== OptiTrack CSV (one line per frame) ==========
     optitrack_file = open(optitrack_log, 'w', newline='')
     optitrack_writer = csv.writer(optitrack_file)
-    # El encabezado se escribe cuando se recibe el primer frame
+    # The header is written when the first frame is received
     
-    # ========== CSV Sincronizado (alineado a sync_rate Hz) ==========
+    # ========== Synchronized CSV (aligned to sync_rate Hz) ==========
     sync_file = open(sync_log, 'w', newline='')
     sync_writer = csv.writer(sync_file)
-    # El encabezado se escribe cuando se recibe el primer frame
+    # The header is written when the first frame is received
     
-    # ========== Loop principal ==========
+    # ========== Main loop ==========
     print(f"\n{'='*80}")
     print("Iniciando movimientos...")
     print(f"{'='*80}\n")
@@ -161,14 +161,14 @@ def run_sync_experiment(sampling_rate: int = 180, sync_rate: int = None, simulat
         for i, combo in enumerate(combos, 1):
             positions = [combo[mid] for mid in cfg.MOTOR_IDS]
             
-            # Mover SIN esperar (wait_for_reached=False)
+            # Move WITHOUT waiting (wait_for_reached=False)
             print(f"[{i:3d}/{len(combos)}] Moviendo a {positions}...", end='', flush=True)
             try:
                 dxl_controller.move(
                     cfg.MOTOR_IDS, 
                     positions, 
                     speed=cfg.DEFAULT_SPEED, 
-                    wait_for_reached=False,  # No esperar aqui, capturar datos mientras se mueve
+                    wait_for_reached=False,  # Do not wait here, capture data while moving
                     timeout=5.0
                 )
                 print(" iniciado", flush=True)
@@ -176,15 +176,15 @@ def run_sync_experiment(sampling_rate: int = 180, sync_rate: int = None, simulat
                 print(f" error: {e}", flush=True)
                 continue
             
-            # ========== Loop de captura mientras el motor se mueve ==========
+            # ========== Capture loop while the motor moves ==========
             move_start = time.time()
-            move_timeout = 10.0  # Timeout para el movimiento
+            move_timeout = 10.0  # Timeout for the movement
             reached = {mid: False for mid in cfg.MOTOR_IDS}
             
             while (time.time() - move_start) < move_timeout:
                 now = time.time()
                 
-                # Leer posiciones actuales de Dynamixel a la frecuencia especificada
+                # Read current Dynamixel positions at the specified frequency
                 actual_pos = []
                 try:
                     for mid in cfg.MOTOR_IDS:
@@ -192,12 +192,12 @@ def run_sync_experiment(sampling_rate: int = 180, sync_rate: int = None, simulat
                 except Exception:
                     actual_pos = [None] * len(cfg.MOTOR_IDS)
                 
-                # Verificar si todos los motores llegaron a su posición
+                # Check whether all motors reached their position
                 for mid, goal, actual in zip(cfg.MOTOR_IDS, positions, actual_pos):
                     if actual is not None and abs(goal - actual) <= cfg.EPSILON:
                         reached[mid] = True
                 
-                # Grabar Dynamixel (una línea con todos los motores, a cada sampling)
+                # Record Dynamixel (one line with all motors, at each sampling)
                 dxl_row = [now, i, len(combos)]
                 for goal, actual in zip(positions, actual_pos):
                     dxl_row.extend([goal, actual])
@@ -205,9 +205,9 @@ def run_sync_experiment(sampling_rate: int = 180, sync_rate: int = None, simulat
                 dxl_file.flush()
                 dxl_buffer.append({'timestamp': now, 'positions': actual_pos, 'goals': positions})
                 
-                # Grabar OptiTrack si hay datos disponibles
+                # Record OptiTrack if data is available
                 if optitrack_client:
-                    all_frames = optitrack_client.get_all_frames()  # Obtener TODOS los frames en el buffer
+                    all_frames = optitrack_client.get_all_frames()  # Get ALL frames in the buffer
                     for frame in all_frames:
                         if frame:
                             if not optitrack_writer_initialized:
@@ -228,10 +228,10 @@ def run_sync_experiment(sampling_rate: int = 180, sync_rate: int = None, simulat
                             optitrack_file.flush()
                             optitrack_buffer.append({'frame': frame.frame_number, 'data': optitrack_row})
                     
-                    # Limpiar buffer de OptiTrack para evitar duplicados en siguiente iteracion
+                    # Clear the OptiTrack buffer to avoid duplicates in the next iteration
                     optitrack_client._frame_buffer.clear()
                 
-                # Escribir CSV sincronizado a la frecuencia especificada
+                # Write synchronized CSV at the specified frequency
                 if now - last_sync_write >= sync_interval:
                     dxl_data = dxl_buffer.get_all()
                     optitrack_data = optitrack_buffer.get_all()
@@ -269,12 +269,12 @@ def run_sync_experiment(sampling_rate: int = 180, sync_rate: int = None, simulat
                         sync_file.flush()
                         last_sync_write = now
                 
-                # Salir si todos los motores llegaron a su posición
+                # Exit if all motors reached their position
                 if all(reached.values()):
                     print(f"  Motores alcanzaron posición objetivo")
                     break
                 
-                # Esperar antes de siguiente muestreo (según SAMPLING_INTERVAL)
+                # Wait before next sampling (according to SAMPLING_INTERVAL)
                 time.sleep(cfg.SAMPLING_INTERVAL)
             
             if not all(reached.values()):

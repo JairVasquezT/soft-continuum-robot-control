@@ -10,27 +10,27 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 # ---------------------------------------------------------------------
-# NOTA: Se eliminó la importación que causaba el ModuleNotFoundError
+# NOTE: The import that caused the ModuleNotFoundError was removed
 # ---------------------------------------------------------------------
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='soft_robot_lstm_v8_18_vel.pth')
 parser.add_argument('--window_size', type=int, default=90)
-# hidden_size/num_layers: solo se usan como FALLBACK si el checkpoint no trae
-# esa metadata embebida (los .pth de train_v8_time_100_2.py sí la traen).
+# hidden_size/num_layers: they are only used as a FALLBACK if the checkpoint does not carry
+# that embedded metadata (the .pth files from train_v8_time_100_2.py do include it).
 parser.add_argument('--hidden_size', type=int, default=128)
 parser.add_argument('--num_layers', type=int, default=2)
 parser.add_argument('--title', type=str, default='')
 args = parser.parse_args()
 
 # =====================================================================
-# 1. PANEL DE CONTROL (Configurado para Modelo V8 Single-Stream)
+# 1. CONTROL PANEL (Configured for V8 Single-Stream Model)
 # =====================================================================
-VERSION_MODELO = "v8"  # Seleccionado modo V8 Completo (17 Entradas)
-WINDOW_SIZE = args.window_size  # Ventana temporal de 90 muestras (1.5s a 60 Hz) -- debe
-# coincidir EXACTO con el WINDOW_SIZE usado al entrenar (train_v8_time_100.py)
-BATCH_SIZE_EVAL = 512  # Inferencia por lotes protegida contra CUDA OOM
-FS_SISTEMA = 60.0  # Frecuencia de muestreo del sistema (60 Hz)
+VERSION_MODELO = "v8"  # Full V8 mode selected (17 Inputs)
+WINDOW_SIZE = args.window_size  # Temporal window of 90 samples (1.5s at 60 Hz) -- must
+# match EXACTLY the WINDOW_SIZE used at training (train_v8_time_100.py)
+BATCH_SIZE_EVAL = 512  # Batch inference protected against CUDA OOM
+FS_SISTEMA = 60.0  # System sampling frequency (60 Hz)
 
 #logs_trayectoria_final_corto
 #corto_20260730_195350_730
@@ -44,7 +44,7 @@ print(
     f" {VERSION_MODELO.upper()}"
 )
 
-# Diccionario de control de la arquitectura ampliado con V8
+# Architecture control dictionary extended with V8
 config_arquitectura = {
     "v1": {
         "input_size": 5,
@@ -86,12 +86,12 @@ config_arquitectura = {
         "input_size": 17,
         "output_size": 3,
         "y_keys": ["rel_x", "rel_y", "rel_z"],
-    },  # Mode V8 Single-Stream
+    },  # V8 Single-Stream mode
 }
 cfg = config_arquitectura[VERSION_MODELO]
 
 # =====================================================================
-# 2. CARGA DE PARÁMETROS MAESTROS DESDE EL JSON
+# 2. LOADING MASTER PARAMETERS FROM THE JSON
 # =====================================================================
 with open(PATH_JSON, "r") as f:
   norm_params = json.load(f)
@@ -99,7 +99,7 @@ with open(PATH_JSON, "r") as f:
 home = norm_params["home_motores"]
 
 # =====================================================================
-# 3. PROCESAMIENTO MECÁNICO Y GEOMÉTRICO (17 FEATURES)
+# 3. MECHANICAL AND GEOMETRIC PROCESSING (17 FEATURES)
 # =====================================================================
 print(f"📖 Leyendo archivo de telemetría original: {PATH_CSV}")
 
@@ -144,21 +144,21 @@ columnas_validas = [
 df = pd.read_csv(PATH_CSV, names=columnas_validas, header=0)
 df.columns = df.columns.str.strip()
 
-# 1. SUBMUESTREO A 30 Hz (Toma 1 de cada 2 filas)
+# 1. SUBSAMPLING TO 30 Hz (Takes 1 of every 2 rows)
 #df = df.iloc[::2].reset_index(drop=True)
 
-# Diferencial de tiempo dt
+# Time differential dt
 df["delta_t"] = df["t_relativo"].astype(float).diff().bfill()
 df = df.iloc[1:].reset_index(drop=True)
 
-# Deltas de los 4 motores restando la posición Home
+# Deltas of the 4 motors subtracting the Home position
 for i in range(1, 5):
   df[f"delta_real_m{i}"] = df[f"real_m{i}"].astype(float) - home[f"m{i}"]
   df[f"delta_meta_m{i}"] = df[f"meta_m{i}"].astype(float) - home[f"m{i}"]
   df[f"couple_m{i}"] = df[f"couple_m{i}"].astype(float)
   df[f"tension_m{i}"] = df[f"tension_m{i}"].astype(float)
 
-# Transformación Cinemática de OptiTrack (Base -> Efector)
+# Kinematic Transformation of OptiTrack (Base -> End-effector)
 p_base = df[["base_x", "base_y", "base_z"]].astype(float).values
 p_efector = df[["efector_x", "efector_y", "efector_z"]].astype(float).values
 
@@ -189,7 +189,7 @@ df["rel_qx"], df["rel_qy"], df["rel_qz"], df["rel_qw"] = (
 
 
 # =====================================================================
-# 3.5. FILTRADO DIGITAL DE FASE CERO (PASABAJAS + UNWRAP)
+# 3.5. ZERO-PHASE DIGITAL FILTERING (LOW-PASS + UNWRAP)
 # =====================================================================
 def aplicar_filtro_pasabajas(data, cutoff_hz, fs_hz=60.0, order=2):
   nyquist = 0.5 * fs_hz
@@ -243,7 +243,7 @@ for i in range(1, 5):
 print("✓ Filtrado V8 Single-Stream completado exitosamente.")
 
 # =====================================================================
-# 4. NORMALIZACIÓN AUTOMÁTICA EN BASE AL JSON
+# 4. AUTOMATIC NORMALIZATION BASED ON THE JSON
 # =====================================================================
 x_keys = list(norm_params["X_transformer"].keys())
 y_keys = cfg["y_keys"]
@@ -278,7 +278,7 @@ print("Máximos normalizados (Y - 3 ejes):", np.max(Y_scaled, axis=0))
 print("------------------------------------\n")
 
 # =====================================================================
-# 5. VENTANADO TEMPORAL Y DATALOADER
+# 5. TEMPORAL WINDOWING AND DATALOADER
 # =====================================================================
 X_seq, Y_seq = [], []
 for i in range(len(X_scaled) - WINDOW_SIZE):
@@ -295,7 +295,7 @@ eval_loader = DataLoader(
 
 
 # =====================================================================
-# 6. ARQUITECTURA DE LA RED E INICIALIZACIÓN (SINGLE-STREAM)
+# 6. NETWORK ARCHITECTURE AND INITIALIZATION (SINGLE-STREAM)
 # =====================================================================
 class SoftRobotLSTM(nn.Module):
 
@@ -322,9 +322,9 @@ class SoftRobotLSTM(nn.Module):
 
 
 checkpoint = torch.load(PATH_PESOS, map_location=device)
-# Soporta tanto checkpoints "envueltos" (dict con model_state_dict + metadata,
-# como los que guarda train_v8_time_100_2.py) como state_dict plano (formato
-# viejo, sin envolver).
+# Supports both "wrapped" checkpoints (dict with model_state_dict + metadata,
+# like those saved by train_v8_time_100_2.py) as a plain state_dict (format
+# old, unwrapped).
 if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
   state_dict = checkpoint["model_state_dict"]
   input_size_ckpt = checkpoint.get("input_size", cfg["input_size"])
@@ -353,15 +353,15 @@ def _construir_y_cargar(hidden_size, num_layers):
 try:
   model = _construir_y_cargar(hidden_size_ckpt, num_layers_ckpt)
 except RuntimeError as e:
-  # La metadata del checkpoint (hidden_size/num_layers) puede estar mal --
-  # algunos .pth de la fase 2 del sweep (mayor_capacidad/mas_profunda)
-  # quedaron guardados con 'hidden_size'/'num_layers' fijos en 128/2 sin
-  # importar la arquitectura real con la que se entrenaron (bug corregido
-  # en train_v8_time_100_2.py, pero estos .pth ya existentes conservan la
-  # metadata vieja). Los PESOS sí son correctos -- reintentar con la
-  # arquitectura que se pasó explícitamente por --hidden_size/--num_layers
-  # (la fuente de verdad real: viene del mismo plan de configuraciones que
-  # generó el checkpoint, ver run_experimentos_ventana.py).
+  # The checkpoint metadata (hidden_size/num_layers) may be wrong --
+  # some .pth files from phase 2 of the sweep (mayor_capacidad/mas_profunda)
+  # were saved with 'hidden_size'/'num_layers' fixed at 128/2 without
+  # import the real architecture they were trained with (bug fixed
+  # in train_v8_time_100_2.py, but these already existing .pth files keep the
+  # old metadata). The WEIGHTS are correct -- retry with the
+  # architecture explicitly passed via --hidden_size/--num_layers
+  # (the real source of truth: it comes from the same configuration plan as
+  # generated the checkpoint, see run_experimentos_ventana.py).
   if (hidden_size_ckpt, num_layers_ckpt) != (args.hidden_size, args.num_layers):
     print(
         f'⚠️ La metadata del checkpoint (hidden={hidden_size_ckpt}, '
@@ -375,7 +375,7 @@ except RuntimeError as e:
 model.eval()
 
 # =====================================================================
-# 7. INFERENCIA EN LOTE Y DESNORMALIZACIÓN
+# 7. BATCH INFERENCE AND DENORMALIZATION
 # =====================================================================
 preds_list = []
 real_list = []
@@ -416,7 +416,7 @@ if cfg["output_size"] == 7:
       q_vectors, axis=1, keepdims=True
   )
 
-# Conversión a milímetros
+# Conversion to millimeters
 Y_real_mm = Y_real_phys[:, :3] * 1000.0
 Y_pred_mm = Y_pred_phys[:, :3] * 1000.0
 
@@ -426,7 +426,7 @@ print("Primeros 5 valores reales de OptiTrack (mm):\n", Y_real_mm[:5])
 print("Varianza de las predicciones en X:", np.var(Y_pred_mm[:, 0]))
 
 # =====================================================================
-# 8. CÁLCULO DE MÉTRICAS DE ERROR
+# 8. COMPUTATION OF ERROR METRICS
 # =====================================================================
 mae_ejes = np.mean(np.abs(Y_real_mm - Y_pred_mm), axis=0)
 error_euclidiano_3d = np.sqrt(np.sum((Y_real_mm - Y_pred_mm) ** 2, axis=1))
@@ -444,7 +444,7 @@ print(f"📐 ERROR DE DISTANCIA EUCLÍDEA 3D PROMEDIO: {mae_3d_promedio:.3f} mm"
 print("=======================================================\n")
 
 # =====================================================================
-# 9. VISUALIZACIÓN GRÁFICA COMPARATIVA
+# 9. COMPARATIVE GRAPHICAL VISUALIZATION
 # =====================================================================
 fig = plt.figure(figsize=(14, 6))
 if args.title:
@@ -537,13 +537,13 @@ ax2.legend(loc="upper right", bbox_to_anchor=(1, 1))
 plt.tight_layout()
 
 # =====================================================================
-# 10. RÉSUMÉ DE L'ERREUR PAR BLOCS (fenêtre séparée)
+# 10. ERROR SUMMARY BY BLOCKS (separate window)
 # =====================================================================
-# Erreur signée (prédit - réel) par axe, sur les positions déjà rotées par
-# rapport à la base (Y_real_mm/Y_pred_mm viennent de rel_x/rel_y/rel_z, pas
-# du repère monde) -- moyenne ± écart-type par bloc pour voir si l'erreur a
-# un biais systématique (dérive) ou si c'est juste du bruit stable dans le
-# temps.
+# Signed error (predicted - real) per axis, on the positions already rotated by
+# relative to the base (Y_real_mm/Y_pred_mm come from rel_x/rel_y/rel_z, not
+# of the world frame) -- mean ± standard deviation per block to see whether the error has
+# a systematic bias (drift) or if it is just stable noise over
+# time.
 def graficar_error_por_bloques(error_x, error_y, error_z, tamano_bloque=200):
   n_bloques = len(error_x) // tamano_bloque
   fig_err, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)

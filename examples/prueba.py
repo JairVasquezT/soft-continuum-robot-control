@@ -4,17 +4,17 @@ import time
 print("SDK instalado correctamente")
 
 # ======================
-# Configuración
+# Configuration
 # ======================
 
 # PORT = "/dev/ttyUSB0"      # Linux
 PORT = "COM3"            # Windows
 
-BAUDRATE =2000000         # Verifica que sea la de tus motores
+BAUDRATE =2000000         # Check that it matches your motors' baudrate
 
 PROTOCOL_VERSION = 1.0
 
-# Direcciones EX-106+
+# EX-106+ addresses
 ADDR_TORQUE_ENABLE = 24
 ADDR_GOAL_POSITION = 30
 ADDR_PRESENT_POSITION = 36
@@ -33,7 +33,7 @@ if not portHandler.openPort():
 if not portHandler.setBaudRate(BAUDRATE):
     quit()
 
-# Activar torque
+# Enable torque
 for motor in IDS:
     packetHandler.write1ByteTxRx(
         portHandler,

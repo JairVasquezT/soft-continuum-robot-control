@@ -1,16 +1,16 @@
-"""Analiza un CSV de mpc_experimento_repeticiones_*.csv para el informe:
+"""Analyzes a mpc_experimento_repeticiones_*.csv CSV for the report:
 
-  1. Gráficos por waypoint (trayectoria 3D real vs. target + error vs.
-     tiempo, un intento por color, verde=éxito/rojo=fallo), guardados como
+  1. Per-waypoint plots (real 3D trajectory vs. target + error vs.
+     time, one attempt per color, green=success/red=failure), saved as
      PNG.
-  2. Estadísticas de t_calc_ms (tiempo de cómputo del CEM por ciclo de
-     Action Hold) -- para respaldar numéricamente la afirmación de "tiempo
-     real" de la sección de formulación del MPC.
-  3. Resumen por intento (resultado, error final, duración) para inspeccionar
-     patrones puntuales (p.ej. por qué un intento falla y el siguiente al
-     mismo punto converge rápido).
+  2. t_calc_ms statistics (CEM compute time per Action Hold
+     cycle) -- to numerically back the "real
+     time" claim in the MPC formulation section.
+  3. Per-attempt summary (result, final error, duration) to inspect
+     specific patterns (e.g. why one attempt fails and the next one at the
+     same point converges quickly).
 
-Uso:
+Usage:
   python analizar_experimento.py mpc_experimento_repeticiones_XXXXXXXX.csv
   python analizar_experimento.py mpc_experimento_repeticiones_XXXXXXXX.csv --wp 2 4 7 8
   python analizar_experimento.py mpc_experimento_repeticiones_XXXXXXXX.csv --listar
@@ -143,8 +143,8 @@ def resumen_intentos(df):
 
 
 def investigar_patron(df, wp_idx):
-  """Timeline detallado de un waypoint puntual, para inspeccionar patrones
-  de intento a intento (p.ej. "falla y despues converge rapido dos veces")."""
+  """Detailed timeline of a specific waypoint, to inspect patterns
+  from attempt to attempt (e.g. "fails and then converges quickly twice")."""
   sub = df[df.wp_idx == wp_idx]
   if sub.empty:
     print(f'⚠️ No hay datos para wp_idx={wp_idx} (WP{wp_idx + 1}).')

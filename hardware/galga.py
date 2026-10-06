@@ -25,7 +25,7 @@ class PhidgetForceController:
                 ch_obj = VoltageRatioInput()
                 ch_obj.setChannel(ch)
                 ch_obj.openWaitForAttachment(1000)
-                ch_obj.setDataInterval(16)  # ~60 Hz de refresco interno en Phidget
+                ch_obj.setDataInterval(16)  # ~60 Hz internal refresh rate in Phidget
                 self.celdas[ch] = ch_obj
             except Exception as e:
                 print(f"⚠️ Error al conectar canal Phidget {ch}: {e}")

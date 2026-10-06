@@ -9,15 +9,15 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 # =====================================================================
-# 1. PANEL DE CONTROL (Configurado para V7 Dual-Stream)
+# 1. CONTROL PANEL (Configured for V7 Dual-Stream)
 # =====================================================================
 VERSION_MODELO = "v7_dual"
-WINDOW_SIZE = 45  # Ventana temporal de 45 muestras (0.75 s a 60 Hz)
+WINDOW_SIZE = 45  # Temporal window of 45 samples (0.75 s at 60 Hz)
 BATCH_SIZE_EVAL = 512
-FS_SISTEMA = 60.0  # Frecuencia de muestreo del sistema (60 Hz)
+FS_SISTEMA = 60.0  # System sampling frequency (60 Hz)
 
 PATH_CSV = "corto_20260730_164214_477.csv"
-PATH_PESOS = "soft_robot_lstm_v7_5_45win.pth"  # Pesos del modelo V7
+PATH_PESOS = "soft_robot_lstm_v7_5_45win.pth"  # V7 model weights
 PATH_JSON = "dataset_v07_real_meta_tension_sinRot_filt_params.json"
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -29,7 +29,7 @@ print(
 cfg = {'input_size': 13, 'output_size': 3, 'y_keys': ['rel_x', 'rel_y', 'rel_z']}
 
 # =====================================================================
-# 2. CARGA DE PARÁMETROS MAESTROS DESDE EL JSON V7
+# 2. LOADING MASTER PARAMETERS FROM THE V7 JSON
 # =====================================================================
 with open(PATH_JSON, 'r') as f:
   norm_params = json.load(f)
@@ -37,7 +37,7 @@ with open(PATH_JSON, 'r') as f:
 home = norm_params['home_motores']
 
 # =====================================================================
-# 3. PROCESAMIENTO MECÁNICO Y GEOMÉTRICO
+# 3. MECHANICAL AND GEOMETRIC PROCESSING
 # =====================================================================
 columnas_validas = [
     'timestamp',
@@ -119,7 +119,7 @@ df['rel_qx'], df['rel_qy'], df['rel_qz'], df['rel_qw'] = (
 
 
 # =====================================================================
-# 3.5. FILTRADO DIGITAL DE FASE CERO (PASABAJAS + UNWRAP)
+# 3.5. ZERO-PHASE DIGITAL FILTERING (LOW-PASS + UNWRAP)
 # =====================================================================
 def aplicar_filtro_pasabajas(data, cutoff_hz, fs_hz=60.0, order=2):
   nyquist = 0.5 * fs_hz
@@ -145,13 +145,13 @@ def filtrar_y_normalizar_cuaterniones(
 
 print('🧹 Aplicando filtrado pasabajas al conjunto de Test V7...')
 
-# 1. Posiciones cartesianas objetivo de OptiTrack (6.0 Hz)
+# 1. OptiTrack target Cartesian positions (6.0 Hz)
 for col in ['rel_x', 'rel_y', 'rel_z']:
   df[col] = aplicar_filtro_pasabajas(
       df[col].values, cutoff_hz=6.0, fs_hz=FS_SISTEMA
   )
 
-# 2. Desenrollado y filtrado de cuaterniones (6.0 Hz)
+# 2. Unwrapping and filtering of quaternions (6.0 Hz)
 q_norm = filtrar_y_normalizar_cuaterniones(
     df[['rel_qx', 'rel_qy', 'rel_qz', 'rel_qw']],
     cutoff_hz=6.0,
@@ -164,7 +164,7 @@ df['rel_qx'], df['rel_qy'], df['rel_qz'], df['rel_qw'] = (
     q_norm[:, 3],
 )
 
-# 3. Tensiones y torques dinámicos de entrada para V7 (3.5 Hz)
+# 3. Dynamic input tensions and torques for V7 (3.5 Hz)
 for i in range(1, 5):
   df[f'tension_m{i}'] = aplicar_filtro_pasabajas(
       df[f'tension_m{i}'].values, cutoff_hz=3.5, fs_hz=FS_SISTEMA
@@ -176,7 +176,7 @@ for i in range(1, 5):
 print('✓ Filtrado completado exitosamente.')
 
 # =====================================================================
-# 4. NORMALIZACIÓN AUTOMÁTICA (13 FEATURES DE V7)
+# 4. AUTOMATIC NORMALIZATION (13 V7 FEATURES)
 # =====================================================================
 x_keys = list(norm_params['X_transformer'].keys())
 y_keys = cfg['y_keys']
@@ -202,7 +202,7 @@ Y_scaled = normalizar_con_limites_json(
 )
 
 # =====================================================================
-# 5. VENTANADO TEMPORAL Y DATALOADER
+# 5. TEMPORAL WINDOWING AND DATALOADER
 # =====================================================================
 X_seq, Y_seq = [], []
 for i in range(len(X_scaled) - WINDOW_SIZE):
@@ -219,7 +219,7 @@ eval_loader = DataLoader(
 
 
 # =====================================================================
-# 6. ARQUITECTURA DUAL-STREAM LSTM (V7)
+# 6. DUAL-STREAM LSTM ARCHITECTURE (V7)
 # =====================================================================
 class V7DualStreamLSTM(nn.Module):
 
@@ -234,19 +234,19 @@ class V7DualStreamLSTM(nn.Module):
   ):
     super(V7DualStreamLSTM, self).__init__()
 
-    # Rama Cinemática: 9 entradas (delta_real_m1..4, delta_t, delta_meta_m1..4)
+    # Kinematic Branch: 9 inputs (delta_real_m1..4, delta_t, delta_meta_m1..4)
     self.lstm_kin = nn.LSTM(
         kin_input_size, kin_hidden, num_layers=2, batch_first=True
     )
 
-    # Rama Dinámica: 4 entradas (tension_m1..4)
+    # Dynamic Branch: 4 inputs (tension_m1..4)
     self.lstm_tens = nn.LSTM(
         tens_input_size, tens_hidden, num_layers=1, batch_first=True
     )
 
     self.dropout = nn.Dropout(dropout)
 
-    # Capa de Fusión
+    # Fusion Layer
     self.fc = nn.Sequential(
         nn.Linear(kin_hidden + tens_hidden, 64),
         nn.ReLU(),
@@ -265,7 +265,7 @@ class V7DualStreamLSTM(nn.Module):
     return self.fc(fusion)
 
 
-# Instanciación y carga de pesos
+# Instantiation and weight loading
 model = V7DualStreamLSTM(
     kin_input_size=9,
     tens_input_size=4,
@@ -279,7 +279,7 @@ model.load_state_dict(torch.load(PATH_PESOS, map_location=device))
 model.eval()
 
 # =====================================================================
-# 7. INFERENCIA EN LOTE CON SEPARACIÓN V7 (9 CINEMÁTICAS + 4 TENSIONES)
+# 7. BATCH INFERENCE WITH V7 SEPARATION (9 KINEMATIC + 4 TENSIONS)
 # =====================================================================
 preds_list = []
 real_list = []
@@ -288,9 +288,9 @@ with torch.no_grad():
   for x_batch, y_batch in eval_loader:
     x_batch = x_batch.to(device)
 
-    # Separación de características para la arquitectura Dual-Stream V7
-    x_kin = x_batch[:, :, :9]  # Cinemática (columnas 0 a 8)
-    x_tens = x_batch[:, :, 9:]  # Tensiones (columnas 9 a 12)
+    # Feature separation for the V7 Dual-Stream architecture
+    x_kin = x_batch[:, :, :9]  # Kinematics (columns 0 to 8)
+    x_tens = x_batch[:, :, 9:]  # Tensions (columns 9 to 12)
 
     preds_batch = model(x_kin, x_tens)
 
@@ -317,12 +317,12 @@ Y_pred_phys = desnormalizar_matriz(
     preds_scaled, norm_params['Y_transformer'], y_keys
 )
 
-# Conversión a milímetros
+# Conversion to millimeters
 Y_real_mm = Y_real_phys[:, :3] * 1000.0
 Y_pred_mm = Y_pred_phys[:, :3] * 1000.0
 
 # =====================================================================
-# 8. CÁLCULO DE MÉTRICAS DE ERROR
+# 8. COMPUTATION OF ERROR METRICS
 # =====================================================================
 mae_ejes = np.mean(np.abs(Y_real_mm - Y_pred_mm), axis=0)
 error_euclidiano_3d = np.sqrt(np.sum((Y_real_mm - Y_pred_mm) ** 2, axis=1))
@@ -340,7 +340,7 @@ print(f'📐 ERROR DE DISTANCIA EUCLÍDEA 3D PROMEDIO: {mae_3d_promedio:.3f} mm'
 print('=======================================================\n')
 
 # =====================================================================
-# 9. VISUALIZACIÓN GRÁFICA COMPARATIVA
+# 9. COMPARATIVE GRAPHICAL VISUALIZATION
 # =====================================================================
 fig = plt.figure(figsize=(14, 6))
 

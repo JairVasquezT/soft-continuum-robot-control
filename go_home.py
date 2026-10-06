@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Script para enviar todos los motores a la posición home.
+"""Script to send all motors to the home position.
 
-Uso:
+Usage:
     python continuum_robot/go_home.py
-    o
+    or
     python -m continuum_robot.go_home
-    o desde dentro de continuum_robot/:
+    or from inside continuum_robot/:
     python go_home.py
 """
 
@@ -13,7 +13,7 @@ import sys
 import time
 import os
 
-# Agregar el directorio padre al path para imports
+# Add the parent directory to the path for imports
 script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
 if parent_dir not in sys.path:
@@ -24,7 +24,7 @@ from continuum_robot.hardware.dynamixel import create_controller
 
 
 def go_home():
-    """Envía todos los motores a su posición home calibrada."""
+    """Sends all motors to their calibrated home position."""
     print("Inicializando controlador Dynamixel...")
     try:
         controller = create_controller(simulate=False)
@@ -37,11 +37,11 @@ def go_home():
         controller.enable_torque(cfg.MOTOR_IDS)
         time.sleep(0.2)
         
-        # Construir lista de posiciones home por motor
+        # Build list of home positions per motor
         home_positions = [cfg.HOME_POSITION[mid] for mid in cfg.MOTOR_IDS]
         
 
-        # Construir posición intermedia: 200 ticks CW desde home (respetando límites)
+        # Build intermediate position: 200 ticks CW from home (respecting limits)
         pre_home_positions = []
         for mid, home_pos in zip(cfg.MOTOR_IDS, home_positions):
             max_limit = cfg.LIMITS[mid][1]
@@ -54,7 +54,7 @@ def go_home():
         controller.move(cfg.MOTOR_IDS, pre_home_positions, speed=cfg.DEFAULT_SPEED,
                        wait_for_reached=True, timeout=10.0)
         
-        # Construir posición de comando ajustada: HOME - 5 ticks
+        # Build adjusted command position: HOME - 5 ticks
         command_home_positions = []
         for mid, home_pos in zip(cfg.MOTOR_IDS, home_positions):
             min_limit = cfg.LIMITS[mid][0]
@@ -70,7 +70,7 @@ def go_home():
         print(f"✓ Todos los motores pasaron por PRE-HOME y recibieron el comando HOME-5")
         time.sleep(0.3)
         
-        # Leer posiciones finales y mostrar reporte
+        # Read final positions and show report
         print(f"\n{'='*50}")
         print(f"REPORTE DE POSICIONES FINALES")
         print(f"{'='*50}")
@@ -93,7 +93,7 @@ def go_home():
         if not all_ok:
             print(f"⚠ Algunos motores tienen desviación > 5 unidades")
         
-        # Desactivar torque para reducir calor/ruido
+        # Disable torque to reduce heat/noise
         print("Desactivando torque...")
         controller.disable_torque(cfg.MOTOR_IDS)
         

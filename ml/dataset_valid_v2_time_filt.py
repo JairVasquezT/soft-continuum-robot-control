@@ -18,17 +18,17 @@ parser.add_argument('--title', type=str, default='')
 args = parser.parse_args()
 
 # =====================================================================
-# 1. PANEL DE CONTROL
+# 1. CONTROL PANEL
 # =====================================================================
-VERSION_MODELO = "v2"  # Opciones: "v1", "v2", "v3", "v4", "v7", "v8"
-WINDOW_SIZE = args.window_size  # Ventana temporal
+VERSION_MODELO = "v2"  # Options: "v1", "v2", "v3", "v4", "v7", "v8"
+WINDOW_SIZE = args.window_size  # Temporal window
 BATCH_SIZE_EVAL = 512
 
 PATH_CSV = "corto_20260730_195350_730.csv"
 PATH_PESOS = args.model
-PATH_JSON = "dataset_v02_real_meta_sinRot_filt_params.json"  # Parametros con datos filtrados
+PATH_JSON = "dataset_v02_real_meta_sinRot_filt_params.json"  # Parameters with filtered data
 
-FS_SISTEMA = 60.0  # Frecuencia de muestreo (60 Hz)
+FS_SISTEMA = 60.0  # Sampling frequency (60 Hz)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(
@@ -77,7 +77,7 @@ config_arquitectura = {
 cfg = config_arquitectura[VERSION_MODELO]
 
 # =====================================================================
-# 2. CARGA DE PARÁMETROS MAESTROS DESDE EL JSON (TRAIN)
+# 2. LOADING MASTER PARAMETERS FROM THE JSON (TRAIN)
 # =====================================================================
 with open(PATH_JSON, 'r') as f:
   norm_params = json.load(f)
@@ -85,7 +85,7 @@ with open(PATH_JSON, 'r') as f:
 home = norm_params['home_motores']
 
 # =====================================================================
-# 3. PROCESAMIENTO MECÁNICO Y GEOMÉTRICO
+# 3. MECHANICAL AND GEOMETRIC PROCESSING
 # =====================================================================
 print(f'📖 Leyendo telemetría de test: {PATH_CSV}')
 
@@ -130,16 +130,16 @@ columnas_validas = [
 df = pd.read_csv(PATH_CSV, names=columnas_validas, header=0)
 df.columns = df.columns.str.strip()
 
-# Diferencial de tiempo dt
+# Time differential dt
 df['delta_t'] = df['t_relativo'].astype(float).diff().bfill()
 df = df.iloc[1:].reset_index(drop=True)
 
-# Deltas de motores (sin filtrar)
+# Motor deltas (unfiltered)
 for i in range(1, 5):
   df[f'delta_real_m{i}'] = df[f'real_m{i}'].astype(float) - home[f'm{i}']
   df[f'delta_meta_m{i}'] = df[f'meta_m{i}'].astype(float) - home[f'm{i}']
 
-# Transformación de Coordenadas de OptiTrack
+# OptiTrack Coordinate Transformation
 p_base = df[['base_x', 'base_y', 'base_z']].astype(float).values
 p_efector = df[['efector_x', 'efector_y', 'efector_z']].astype(float).values
 
@@ -170,7 +170,7 @@ df['rel_qx'], df['rel_qy'], df['rel_qz'], df['rel_qw'] = (
 
 
 # =====================================================================
-# 3.5. FILTRADO IDÉNTICO AL ENTRENAMIENTO (PASABAJAS + UNWRAP)
+# 3.5. FILTERING IDENTICAL TO TRAINING (LOW-PASS + UNWRAP)
 # =====================================================================
 def aplicar_filtro_pasabajas(data, cutoff_hz=6.0, fs_hz=60.0, order=2):
   nyquist = 0.5 * fs_hz
@@ -196,13 +196,13 @@ def filtrar_y_normalizar_cuaterniones(
 
 print('🧹 Aplicando filtrado pasabajas al conjunto de Test...')
 
-# 1. Posiciones cartesianas OptiTrack (6 Hz)
+# 1. OptiTrack Cartesian positions (6 Hz)
 for col in ['rel_x', 'rel_y', 'rel_z']:
   df[col] = aplicar_filtro_pasabajas(
       df[col].values, cutoff_hz=6.0, fs_hz=FS_SISTEMA
   )
 
-# 2. Cuaterniones con desenrollado y norma 1 (6 Hz)
+# 2. Quaternions with unwrapping and unit norm (6 Hz)
 q_norm = filtrar_y_normalizar_cuaterniones(
     df[['rel_qx', 'rel_qy', 'rel_qz', 'rel_qw']],
     cutoff_hz=6.0,
@@ -215,7 +215,7 @@ df['rel_qx'], df['rel_qy'], df['rel_qz'], df['rel_qw'] = (
     q_norm[:, 3],
 )
 
-# 3. Torques y tensiones dinámicas (3.5 Hz)
+# 3. Dynamic torques and tensions (3.5 Hz)
 for i in range(1, 5):
   df[f'couple_m{i}'] = aplicar_filtro_pasabajas(
       df[f'couple_m{i}'].astype(float).values, cutoff_hz=3.5, fs_hz=FS_SISTEMA
@@ -227,7 +227,7 @@ for i in range(1, 5):
 print('✓ Filtrado completado en telemetría de Test.')
 
 # =====================================================================
-# 4. NORMALIZACIÓN [-1, 1] USANDO LÍMITES DE ENTRENAMIENTO
+# 4. NORMALIZATION [-1, 1] USING TRAINING LIMITS
 # =====================================================================
 x_keys = list(norm_params['X_transformer'].keys())
 y_keys = cfg['y_keys']
@@ -253,7 +253,7 @@ Y_scaled = normalizar_con_limites_json(
 )
 
 # =====================================================================
-# 5. CREACIÓN DE VENTANAS TEMPORALES
+# 5. CREATION OF TEMPORAL WINDOWS
 # =====================================================================
 X_seq, Y_seq = [], []
 for i in range(len(X_scaled) - WINDOW_SIZE):
@@ -270,7 +270,7 @@ eval_loader = DataLoader(
 
 
 # =====================================================================
-# 6. ARQUITECTURA DE LA RED
+# 6. NETWORK ARCHITECTURE
 # =====================================================================
 class SoftRobotLSTM(nn.Module):
 
@@ -307,7 +307,7 @@ model.load_state_dict(torch.load(PATH_PESOS, map_location=device))
 model.eval()
 
 # =====================================================================
-# 7. INFERENCIA EN MINI-BATCHES
+# 7. INFERENCE IN MINI-BATCHES
 # =====================================================================
 preds_list = []
 real_list = []
@@ -350,7 +350,7 @@ Y_real_mm = Y_real_phys[:, :3] * 1000.0
 Y_pred_mm = Y_pred_phys[:, :3] * 1000.0
 
 # =====================================================================
-# 8. CÁLCULO DE MÉTRICAS DE ERROR
+# 8. COMPUTATION OF ERROR METRICS
 # =====================================================================
 mae_ejes = np.mean(np.abs(Y_real_mm - Y_pred_mm), axis=0)
 error_euclidiano_3d = np.sqrt(np.sum((Y_real_mm - Y_pred_mm) ** 2, axis=1))
@@ -368,7 +368,7 @@ print(f'📐 ERROR DE DISTANCIA EUCLÍDEA 3D PROMEDIO: {mae_3d_promedio:.3f} mm'
 print('=======================================================\n')
 
 # =====================================================================
-# 9. GRÁFICOS
+# 9. PLOTS
 # =====================================================================
 fig = plt.figure(figsize=(14, 6))
 if args.title:

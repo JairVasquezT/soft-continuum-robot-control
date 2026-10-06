@@ -7,19 +7,19 @@ import json
 from scipy.spatial.transform import Rotation as R
 
 # =====================================================================
-# 1. PANEL DE CONTROL (Configura aquí la variante a evaluar)
+# 1. CONTROL PANEL (Configure the variant to evaluate here)
 # =====================================================================
-VERSION_MODELO = "v1"       # Opciones: "v1", "v2", "v3", "v4"
-WINDOW_SIZE = 90            # Ventana temporal optimizada a 12.5 Hz
+VERSION_MODELO = "v1"       # Options: "v1", "v2", "v3", "v4"
+WINDOW_SIZE = 90            # Temporal window optimized at 12.5 Hz
 
 PATH_CSV = "corto_20260727_174651_814.csv"
-PATH_PESOS = "soft_robot_lstm_v1_7_time.pth"  # O 'soft_robot_lstm_v1.pth'
+PATH_PESOS = "soft_robot_lstm_v1_7_time.pth"  # Or 'soft_robot_lstm_v1.pth'
 PATH_JSON = "dataset_v1_sinMeta_sinRot_params.json"
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"🔥 Procesando CSV con dispositivo: {device} | Modo: {VERSION_MODELO.upper()}")
 
-# Diccionario de control de la arquitectura según tu taxonomía del paper
+# Architecture control dictionary following your paper taxonomy
 config_arquitectura = {
     "v1": {"input_size": 4, "output_size": 3, "y_keys": ['rel_x', 'rel_y', 'rel_z']},
     "v2": {"input_size": 8, "output_size": 3, "y_keys": ['rel_x', 'rel_y', 'rel_z']},
@@ -29,16 +29,16 @@ config_arquitectura = {
 cfg = config_arquitectura[VERSION_MODELO]
 
 # =====================================================================
-# 2. CARGA DE PARÁMETROS MAESTROS DESDE EL JSON
+# 2. LOADING MASTER PARAMETERS FROM THE JSON
 # =====================================================================
 with open(PATH_JSON, 'r') as f:
     norm_params = json.load(f)
 
-# Extraer el "cero" físico del robot guardado en el JSON de entrenamiento
+# Extract the robot's physical "zero" saved in the training JSON
 home = norm_params["home_motores"]
 
 # =====================================================================
-# 3. PROCESAMIENTO MECÁNICO Y GEOMÉTRICO EN CRUDO DEL CSV
+# 3. RAW MECHANICAL AND GEOMETRIC PROCESSING OF THE CSV
 # =====================================================================
 print(f"📖 Leyendo archivo de telemetría original: {PATH_CSV}")
 
@@ -56,7 +56,7 @@ df = df.iloc[1:].reset_index(drop=True)
 
 df.columns = df.columns.str.strip()
 
-# A. Calcular Deltas de los motores restando su calibración Home
+# A. Compute motor deltas by subtracting their Home calibration
 df['delta_real_m1'] = df['real_m1'].astype(float) - home['m1']
 df['delta_real_m2'] = df['real_m2'].astype(float) - home['m2']
 df['delta_real_m3'] = df['real_m3'].astype(float) - home['m3']
@@ -67,28 +67,28 @@ df['delta_meta_m2'] = df['meta_m2'].astype(float) - home['m2']
 df['delta_meta_m3'] = df['meta_m3'].astype(float) - home['m3']
 df['delta_meta_m4'] = df['meta_m4'].astype(float) - home['m4']
 
-# B. Transformación Geométrica de Coordenadas de OptiTrack (Base -> Efector)
-# Convertimos las posiciones a arreglos de numpy
+# B. Geometric Coordinate Transformation of OptiTrack (Base -> End-effector)
+# Convert the positions to numpy arrays
 p_base = df[['base_x', 'base_y', 'base_z']].values
 p_efector = df[['efector_x', 'efector_y', 'efector_z']].values
 
-# Extraemos cuaterniones y creamos los objetos de rotación tridimensionales
+# Extract the quaternions and create the three-dimensional rotation objects
 r_base = R.from_quat(df[['base_qx', 'base_qy', 'base_qz', 'base_qw']].values)
 r_efector = R.from_quat(df[['efector_qx', 'efector_qy', 'efector_qz', 'efector_qw']].values)
 
-# Posición relativa exacta: P_rel = (R_base)^(-1) * (P_efector - P_base)
+# Exact relative position: P_rel = (R_base)^(-1) * (P_efector - P_base)
 p_relativo = r_base.inv().apply(p_efector - p_base)
 
-# Rotación relativa exacta: R_rel = (R_base)^(-1) * R_efector
+# Exact relative rotation: R_rel = (R_base)^(-1) * R_effector
 r_relativo = r_base.inv() * r_efector
-q_relativo = r_relativo.as_quat() # Devuelve matriz con [qx, qy, qz, qw]
+q_relativo = r_relativo.as_quat() # Returns a matrix with [qx, qy, qz, qw]
 
-# Guardar los cálculos de vuelta en el DataFrame intermedio
+# Save the computations back into the intermediate DataFrame
 df['rel_x'], df['rel_y'], df['rel_z'] = p_relativo[:, 0], p_relativo[:, 1], p_relativo[:, 2]
 df['rel_qx'], df['rel_qy'], df['rel_qz'], df['rel_qw'] = q_relativo[:, 0], q_relativo[:, 1], q_relativo[:, 2], q_relativo[:, 3]
 
 # =====================================================================
-# 4. AISLAMIENTO Y ESCALADO HISTÓRICO [-1, 1]
+# 4. ISOLATION AND HISTORICAL SCALING [-1, 1]
 # =====================================================================
 x_keys = list(norm_params['X_transformer'].keys())
 y_keys = cfg['y_keys']
@@ -101,7 +101,7 @@ def normalizar_con_limites_json(matrix, params_section, keys_list):
     for idx, key in enumerate(keys_list):
         min_t = params_section[key]['min_t']
         max_t = params_section[key]['max_t']
-        # Ajuste exacto al rango simétrico [-1, 1]
+        # Exact fit to the symmetric range [-1, 1]
         matrix_scaled[:, idx] = 2 * (matrix_matrix := matrix[:, idx] - min_t) / (max_t - min_t) - 1
     return matrix_scaled
 
@@ -109,7 +109,7 @@ X_scaled = normalizar_con_limites_json(X_raw_matrix, norm_params['X_transformer'
 Y_scaled = normalizar_con_limites_json(Y_raw_matrix, norm_params['Y_transformer'], y_keys)
 
 # =====================================================================
-# 5. CREACIÓN DE VENTANAS TEMPORALES CONTINUAS
+# 5. CREATION OF CONTINUOUS TEMPORAL WINDOWS
 # =====================================================================
 X_seq, Y_seq = [], []
 for i in range(len(X_scaled) - WINDOW_SIZE):
@@ -120,7 +120,7 @@ X_tensor = torch.tensor(np.array(X_seq), dtype=torch.float32).to(device)
 Y_tensor = torch.tensor(np.array(Y_seq), dtype=torch.float32).to(device)
 
 # =====================================================================
-# 6. DEFINICIÓN DE ARQUITECTURA LSTM Y CARGA DE PESOS
+# 6. LSTM ARCHITECTURE DEFINITION AND WEIGHT LOADING
 # =====================================================================
 class SoftRobotLSTM(nn.Module):
     def __init__(self, input_size, hidden_size=128, num_layers=2, output_size=3, dropout=0.0):
@@ -145,7 +145,7 @@ model.load_state_dict(torch.load(PATH_PESOS, map_location=device))
 model.eval()
 
 # =====================================================================
-# 7. INFERENCIA Y DESNORMALIZACIÓN MATEMÁTICA
+# 7. INFERENCE AND MATHEMATICAL DENORMALIZATION
 # =====================================================================
 with torch.no_grad():
     preds_scaled = model(X_tensor).cpu().numpy()
@@ -162,17 +162,17 @@ def desnormalizar_matriz(matrix_sc, params_section, keys_list):
 Y_real_phys = desnormalizar_matriz(real_scaled, norm_params['Y_transformer'], y_keys)
 Y_pred_phys = desnormalizar_matriz(preds_scaled, norm_params['Y_transformer'], y_keys)
 
-# Filtro algebraico unitario para cuaterniones si evalúas V3 o V4
+# Unit algebraic filter for quaternions if you evaluate V3 or V4
 if cfg['output_size'] == 7:
     q_vectors = Y_pred_phys[:, 3:7]
     Y_pred_phys[:, 3:7] = q_vectors / np.linalg.norm(q_vectors, axis=1, keepdims=True)
 
-# Conversión cartesiana métrica: Pasamos de Metros a Milímetros para análisis de ingeniería
+# Metric Cartesian conversion: we go from Meters to Millimeters for engineering analysis
 Y_real_mm = Y_real_phys[:, :3] * 1000.0
 Y_pred_mm = Y_pred_phys[:, :3] * 1000.0
 
 # =====================================================================
-# 8. CÁLCULO DE MÉTRICAS CIENTÍFICAS DE ERROR
+# 8. COMPUTATION OF SCIENTIFIC ERROR METRICS
 # =====================================================================
 mae_ejes = np.mean(np.abs(Y_real_mm - Y_pred_mm), axis=0)
 error_euclidiano_3d = np.sqrt(np.sum((Y_real_mm - Y_pred_mm)**2, axis=1))
@@ -188,11 +188,11 @@ print(f"📐 ERROR DE DISTANCIA EUCLÍDEA 3D PROMEDIO: {mae_3d_promedio:.3f} mm"
 print("=======================================================\n")
 
 # =====================================================================
-# 9. GENERACIÓN DE GRÁFICOS COMPUESTOS EXPERIMENTALES
+# 9. GENERATION OF COMPOSITE EXPERIMENTAL PLOTS
 # =====================================================================
 fig = plt.figure(figsize=(14, 6))
 
-# Gráfico Izquierdo: Reconstrucción espacial 3D del espacio de trabajo
+# Left Plot: 3D spatial reconstruction of the workspace
 ax1 = fig.add_subplot(1, 2, 1, projection='3d')
 ax1.plot(Y_real_mm[:, 0], Y_real_mm[:, 1], Y_real_mm[:, 2], color='black', label='Real (OptiTrack)', linewidth=2.5)
 ax1.plot(Y_pred_mm[:, 0], Y_pred_mm[:, 1], Y_pred_mm[:, 2], color='crimson', linestyle='--', label='Predicho (LSTM)', linewidth=2)
@@ -203,7 +203,7 @@ ax1.set_zlabel('Eje Z (mm)')
 ax1.legend()
 ax1.grid(True)
 
-# Gráfico Derecho: Desglose por componente a lo largo del tiempo
+# Right Plot: Per-component breakdown over time
 ax2 = fig.add_subplot(1, 2, 2)
 time_axis = np.arange(len(Y_real_mm))
 ax2.plot(time_axis, Y_real_mm[:, 0], color='black', label='X Real', linewidth=1.5)

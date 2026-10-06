@@ -9,15 +9,15 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 # =====================================================================
-# 1. PANEL DE CONTROL (Configurado para V8 Dual-Stream)
+# 1. CONTROL PANEL (Configured for V8 Dual-Stream)
 # =====================================================================
 VERSION_MODELO = "v8_dual"
-WINDOW_SIZE = 45  # Ventana sincronizada a 0.75 s (60 Hz)
+WINDOW_SIZE = 45  # Window synchronized to 0.75 s (60 Hz)
 BATCH_SIZE_EVAL = 512
-FS_SISTEMA = 60.0  # Frecuencia de muestreo del sistema (60 Hz)
+FS_SISTEMA = 60.0  # System sampling frequency (60 Hz)
 
 PATH_CSV = "corto_20260730_164214_477.csv"
-PATH_PESOS = "soft_robot_lstm_v8_6_dualstream.pth"  # Pesos V8 Dual-Stream
+PATH_PESOS = "soft_robot_lstm_v8_6_dualstream.pth"  # V8 Dual-Stream weights
 PATH_JSON = "dataset_v08_completo_sinRot_filt_params.json"
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -29,7 +29,7 @@ print(
 cfg = {'input_size': 17, 'output_size': 3, 'y_keys': ['rel_x', 'rel_y', 'rel_z']}
 
 # =====================================================================
-# 2. CARGA DE PARÁMETROS MAESTROS DESDE EL JSON
+# 2. LOADING MASTER PARAMETERS FROM THE JSON
 # =====================================================================
 with open(PATH_JSON, 'r') as f:
   norm_params = json.load(f)
@@ -37,7 +37,7 @@ with open(PATH_JSON, 'r') as f:
 home = norm_params['home_motores']
 
 # =====================================================================
-# 3. PROCESAMIENTO MECÁNICO Y GEOMÉTRICO (17 FEATURES)
+# 3. MECHANICAL AND GEOMETRIC PROCESSING (17 FEATURES)
 # =====================================================================
 columnas_validas = [
     'timestamp',
@@ -119,7 +119,7 @@ df['rel_qx'], df['rel_qy'], df['rel_qz'], df['rel_qw'] = (
 
 
 # =====================================================================
-# 3.5. FILTRADO DIGITAL DE FASE CERO (PASABAJAS + UNWRAP)
+# 3.5. ZERO-PHASE DIGITAL FILTERING (LOW-PASS + UNWRAP)
 # =====================================================================
 def aplicar_filtro_pasabajas(data, cutoff_hz, fs_hz=60.0, order=2):
   nyquist = 0.5 * fs_hz
@@ -145,13 +145,13 @@ def filtrar_y_normalizar_cuaterniones(
 
 print('🧹 Aplicando filtrado pasabajas al conjunto de Test V8...')
 
-# 1. Posiciones cartesianas objetivo (6.0 Hz)
+# 1. Target Cartesian positions (6.0 Hz)
 for col in ['rel_x', 'rel_y', 'rel_z']:
   df[col] = aplicar_filtro_pasabajas(
       df[col].values, cutoff_hz=6.0, fs_hz=FS_SISTEMA
   )
 
-# 2. Desenrollado y filtrado de cuaterniones (6.0 Hz)
+# 2. Unwrapping and filtering of quaternions (6.0 Hz)
 q_norm = filtrar_y_normalizar_cuaterniones(
     df[['rel_qx', 'rel_qy', 'rel_qz', 'rel_qw']],
     cutoff_hz=6.0,
@@ -164,7 +164,7 @@ df['rel_qx'], df['rel_qy'], df['rel_qz'], df['rel_qw'] = (
     q_norm[:, 3],
 )
 
-# 3. Dinámica (Torques y Tensiones) para V8 (3.5 Hz)
+# 3. Dynamics (Torques and Tensions) for V8 (3.5 Hz)
 for i in range(1, 5):
   df[f'couple_m{i}'] = aplicar_filtro_pasabajas(
       df[f'couple_m{i}'].values, cutoff_hz=3.5, fs_hz=FS_SISTEMA
@@ -176,7 +176,7 @@ for i in range(1, 5):
 print('✓ Filtrado V8 completado exitosamente.')
 
 # =====================================================================
-# 4. NORMALIZACIÓN AUTOMÁTICA
+# 4. AUTOMATIC NORMALIZATION
 # =====================================================================
 x_keys = list(norm_params['X_transformer'].keys())
 y_keys = cfg['y_keys']
@@ -202,7 +202,7 @@ Y_scaled = normalizar_con_limites_json(
 )
 
 # =====================================================================
-# 5. VENTANADO TEMPORAL Y DATALOADER
+# 5. TEMPORAL WINDOWING AND DATALOADER
 # =====================================================================
 X_seq, Y_seq = [], []
 for i in range(len(X_scaled) - WINDOW_SIZE):
@@ -219,7 +219,7 @@ eval_loader = DataLoader(
 
 
 # =====================================================================
-# 6. ARQUITECTURA DUAL-STREAM LSTM (V8: 9 Cinemáticas + 8 Dinámicas)
+# 6. DUAL-STREAM LSTM ARCHITECTURE (V8: 9 Kinematic + 8 Dynamic)
 # =====================================================================
 class DualStreamSoftRobotLSTM(nn.Module):
 
@@ -234,19 +234,19 @@ class DualStreamSoftRobotLSTM(nn.Module):
   ):
     super(DualStreamSoftRobotLSTM, self).__init__()
 
-    # Rama 1: Cinemática (1 dt + 4 motores reales + 4 motores meta)
+    # Branch 1: Kinematics (1 dt + 4 real motors + 4 target motors)
     self.lstm_kin = nn.LSTM(
         kin_input_size, kin_hidden, num_layers=2, batch_first=True
     )
 
-    # Rama 2: Dinámica (4 torques + 4 tensiones)
+    # Branch 2: Dynamics (4 torques + 4 tensions)
     self.lstm_dyn = nn.LSTM(
         dyn_input_size, dyn_hidden, num_layers=1, batch_first=True
     )
 
     self.dropout = nn.Dropout(dropout)
 
-    # Capa de Fusión
+    # Fusion Layer
     self.fc = nn.Sequential(
         nn.Linear(kin_hidden + dyn_hidden, 64),
         nn.ReLU(),
@@ -265,7 +265,7 @@ class DualStreamSoftRobotLSTM(nn.Module):
     return self.fc(fusion)
 
 
-# Instanciación y carga de pesos
+# Instantiation and weight loading
 model = DualStreamSoftRobotLSTM(
     kin_input_size=9,
     dyn_input_size=8,
@@ -279,7 +279,7 @@ model.load_state_dict(torch.load(PATH_PESOS, map_location=device))
 model.eval()
 
 # =====================================================================
-# 7. INFERENCIA EN LOTE CON SEPARACIÓN DE RAMAS (V8)
+# 7. BATCH INFERENCE WITH BRANCH SEPARATION (V8)
 # =====================================================================
 preds_list = []
 real_list = []
@@ -288,9 +288,9 @@ with torch.no_grad():
   for x_batch, y_batch in eval_loader:
     x_batch = x_batch.to(device)
 
-    # Separación implícita de las dos ramas para V8
-    x_kin = x_batch[:, :, :9]  # Cinemática (columnas 0 a 8)
-    x_dyn = x_batch[:, :, 9:]  # Dinámica (columnas 9 a 16 -> 4 torques + 4 tensiones)
+    # Implicit separation of the two branches for V8
+    x_kin = x_batch[:, :, :9]  # Kinematics (columns 0 to 8)
+    x_dyn = x_batch[:, :, 9:]  # Dynamics (columns 9 to 16 -> 4 torques + 4 tensions)
 
     preds_batch = model(x_kin, x_dyn)
 
@@ -317,12 +317,12 @@ Y_pred_phys = desnormalizar_matriz(
     preds_scaled, norm_params['Y_transformer'], y_keys
 )
 
-# Conversión a milímetros
+# Conversion to millimeters
 Y_real_mm = Y_real_phys[:, :3] * 1000.0
 Y_pred_mm = Y_pred_phys[:, :3] * 1000.0
 
 # =====================================================================
-# 8. CÁLCULO DE MÉTRICAS DE ERROR
+# 8. COMPUTATION OF ERROR METRICS
 # =====================================================================
 mae_ejes = np.mean(np.abs(Y_real_mm - Y_pred_mm), axis=0)
 error_euclidiano_3d = np.sqrt(np.sum((Y_real_mm - Y_pred_mm) ** 2, axis=1))
@@ -340,7 +340,7 @@ print(f'📐 ERROR DE DISTANCIA EUCLÍDEA 3D PROMEDIO: {mae_3d_promedio:.3f} mm'
 print('=======================================================\n')
 
 # =====================================================================
-# 9. VISUALIZACIÓN GRÁFICA COMPARATIVA
+# 9. COMPARATIVE GRAPHICAL VISUALIZATION
 # =====================================================================
 fig = plt.figure(figsize=(14, 6))
 

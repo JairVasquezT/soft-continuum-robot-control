@@ -1,13 +1,13 @@
-"""Procesa un CSV 'corto' (grabación independiente de 'largo') a un .npy
-listo para usarse como set de VALIDACIÓN real del predictor (MPCDirectPredictor),
-reutilizando los parámetros de escalado (min_t/max_t) del dataset de
-entrenamiento -- nunca recalculando límites propios sobre 'corto', para no
-filtrar información del set de test hacia el entrenamiento.
+"""Processes a 'corto' CSV (recording independent from 'largo') into a .npy
+ready to be used as a real VALIDATION set for the predictor (MPCDirectPredictor),
+reusing the scaling parameters (min_t/max_t) of the training dataset
+-- never recomputing its own limits on 'corto', so as not to
+leak information from the test set into training.
 
-Misma fórmula de posición/rotación relativa que MPC.py en inferencia y que
-dataset_pred_filt.py en entrenamiento: p_rel = R_base.inv().apply(p_efector - p_base).
+Same relative position/rotation formula as MPC.py at inference and as
+dataset_pred_filt.py at training: p_rel = R_base.inv().apply(p_efector - p_base).
 
-Uso: ajustar PATH_CSV_CORTO / PATH_METADATA_LARGO abajo y correr.
+Usage: adjust PATH_CSV_CORTO / PATH_METADATA_LARGO below and run.
 """
 import json
 import numpy as np
@@ -16,7 +16,7 @@ from scipy.signal import butter, filtfilt
 from scipy.spatial.transform import Rotation as R
 
 # =====================================================================
-# 1. CONFIGURACIÓN
+# 1. CONFIGURATION
 # =====================================================================
 PATH_CSV_CORTO = 'corto_20260730_195350_730.csv'
 PATH_METADATA_LARGO = 'dataset_pred_v08_completo_conRot_directo_filt_params.json'
@@ -26,7 +26,7 @@ FS_SISTEMA = 60.0
 MAX_DELTA_T = 1.0 / 55.0  # 55 Hz = ~18.18 ms
 
 # =====================================================================
-# 2. METADATA DE ENTRENAMIENTO (escalado y calibración a reutilizar)
+# 2. TRAINING METADATA (scaling and calibration to be reused)
 # =====================================================================
 with open(PATH_METADATA_LARGO, 'r') as f:
   metadata = json.load(f)
@@ -38,7 +38,7 @@ T_IN = metadata['t_in']
 T_OUT = metadata['t_out']
 
 # =====================================================================
-# 3. CARGA Y LECTURA DEL CSV DE CORTO
+# 3. LOADING AND READING THE 'CORTO' CSV
 # =====================================================================
 columnas = [
     'timestamp',
@@ -84,7 +84,7 @@ df = df.iloc[1:].reset_index(drop=True)
 print(f'✓ Muestras de corto cargadas ({len(df)} filas)')
 
 # =====================================================================
-# 4. GEOMETRÍA: DELTAS DE MOTOR + POSICIÓN/ROTACIÓN RELATIVA AL MARCO DE LA BASE
+# 4. GEOMETRY: MOTOR DELTAS + POSITION/ROTATION RELATIVE TO THE BASE FRAME
 # =====================================================================
 for i in range(1, 5):
   df[f'delta_real_m{i}'] = df[f'real_m{i}'] - ANGULOS_CALIBRACION[f'm{i}']
@@ -110,7 +110,7 @@ df['rel_qx'], df['rel_qy'], df['rel_qz'], df['rel_qw'] = (
 )
 
 # =====================================================================
-# 5. FILTRADO PASABAJAS (mismos cutoffs que dataset_pred_filt.py)
+# 5. LOW-PASS FILTERING (same cutoffs as dataset_pred_filt.py)
 # =====================================================================
 def aplicar_filtro_pasabajas(data, cutoff_hz, fs_hz=FS_SISTEMA, order=2):
   nyquist = 0.5 * fs_hz
@@ -143,7 +143,7 @@ for i in range(1, 5):
 print('✓ Filtrado completado.')
 
 # =====================================================================
-# 6. ESCALADO CON LOS PARÁMETROS DE ENTRENAMIENTO (NO recalcular límites)
+# 6. SCALING WITH THE TRAINING PARAMETERS (do NOT recompute limits)
 # =====================================================================
 def escalar_con_parametros(df_raw, columnas_nombres, dict_params):
   scaled = np.zeros((len(df_raw), len(columnas_nombres)))
@@ -182,8 +182,8 @@ X_fut_scaled = escalar_con_parametros(df, cols_x_fut, X_TRANS)
 Y_scaled = escalar_con_parametros(df, cols_y, Y_TRANS)
 
 # =====================================================================
-# 7. VENTANAS DESLIZANTES (mismos filtros de frecuencia/consigna constante
-#    que crear_secuencias_directas_mpc en dataset_pred_filt.py)
+# 7. SLIDING WINDOWS (same frequency/constant-setpoint filters
+#    as crear_secuencias_directas_mpc in dataset_pred_filt.py)
 # =====================================================================
 X_hist_list, U_cand_list, Y_fut_list = [], [], []
 descartadas_frec = 0

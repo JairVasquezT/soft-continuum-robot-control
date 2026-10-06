@@ -1,22 +1,22 @@
-r"""Grafica los resultados de una corrida de MPC.py a partir de su CSV de log.
+r"""Plots the results of an MPC.py run from its CSV log.
 
-Genera:
-  1. Trayectoria 3D (target, control, OptiTrack).
-  2. Error 3D y por eje vs. tiempo, con líneas verticales en cada cambio
-     de waypoint.
-  3. Por motor: ticks reales vs. comando enviado vs. sugerencia cruda del
-     optimizador, marcando en rojo los ciclos donde la histéresis
-     (--delta-min-ticks) bloqueó la corrección, y en naranja los ciclos
-     donde el target quedó cerca del límite físico configurado.
-  4. Costo del CEM vs. tiempo.
-  5. Tiempo de cálculo (t_calc_ms) y frecuencia real del lazo de control.
+Generates:
+  1. 3D trajectory (target, control, OptiTrack).
+  2. 3D and per-axis error vs. time, with vertical lines at each
+     waypoint change.
+  3. Per motor: real ticks vs. command sent vs. raw suggestion from the
+     optimizer, marking in red the cycles where the hysteresis
+     (--delta-min-ticks) blocked the correction, and in orange the cycles
+     where the target was close to the configured physical limit.
+  4. CEM cost vs. time.
+  5. Compute time (t_calc_ms) and real control loop frequency.
 
-  6. Predicción del modelo (t_out pasos adelante) vs. lo que realmente midió
-     el sensor esa misma cantidad de pasos después -- distingue un problema
-     de calibración/sesgo del modelo (predice bien pero el error real
-     persiste igual) de un problema real de alcance físico.
+  6. Model prediction (t_out steps ahead) vs. what the sensor actually
+     measured that same number of steps later -- it distinguishes a model
+     calibration/bias problem (predicts well but the real error
+     persists all the same) from a real physical-reach problem.
 
-Uso: python continuum_robot/control/plot_resultados.py ruta\al\mpc_experiment_YYYYMMDD_HHMMSS.csv
+Usage: python continuum_robot/control/plot_resultados.py ruta\al\mpc_experiment_YYYYMMDD_HHMMSS.csv
 """
 import sys
 
@@ -28,10 +28,10 @@ if len(sys.argv) < 2:
   print('Uso: python plot_resultados.py ruta\\al\\mpc_experiment_*.csv')
   sys.exit(1)
 
-# 🎯 Filtro por waypoint: si no es None, se queda solo con las filas de ESE
-# wp_idx (útil para logs de run_experimento_repeticiones, con varios
-# waypoints y repeticiones en un mismo CSV) -- cambiar acá para ver otro
-# punto. None = ver el CSV completo, sin filtrar (todos los waypoints).
+# 🎯 Per-waypoint filter: if not None, keeps only the rows of THAT
+# wp_idx (useful for run_experimento_repeticiones logs, with several
+# waypoints and repetitions in one CSV) -- change here to view another
+# point. None = view the whole CSV, unfiltered (all waypoints).
 WP_IDX_A_VER = 10
 
 path = sys.argv[1]
@@ -45,16 +45,16 @@ if WP_IDX_A_VER is not None and 'wp_idx' in df.columns:
     sys.exit(1)
   print(f'🔎 Filtrado a wp_idx={WP_IDX_A_VER}: {len(df)}/{total_antes} filas')
 
-# La col. 0 real del CSV es el timestamp de escritura del logger (antepuesto
-# automáticamente por CSVLogger.log()); pandas la toma como nombre de columna
-# "basura" al leer la fila de encabezado -- se ignora, no hace falta.
+# The real col. 0 of the CSV is the logger's write timestamp (prepended
+# automatically by CSVLogger.log()); pandas takes it as a "junk" column
+# name when reading the header row -- it is ignored, no need to handle it.
 t = df['t_epoch'].values
 t_rel = t - t[0]
 
-# Índices donde cambia el "target lógico" -- wp_idx (waypoint) y, si existe
-# (logs de run_experimento_repeticiones), también intento_idx (repetición:
-# cada intento vuelve a Home y reintenta el mismo waypoint, así que también
-# es un reinicio real del target desde el punto de vista de optimize()).
+# Indices where the "logical target" changes -- wp_idx (waypoint) and, if it exists
+# (run_experimento_repeticiones logs), also intento_idx (repetition:
+# each attempt returns to Home and retries the same waypoint, so it is also
+# a real target restart from optimize()'s point of view).
 if 'intento_idx' in df.columns:
   target_logico = df['wp_idx'].astype(str) + '_' + df['intento_idx'].astype(str)
 else:
@@ -69,7 +69,7 @@ print(f'✓ {len(df)} filas cargadas | {df["wp_idx"].nunique()} waypoint(s) | '
       f'duración total: {t_rel[-1]:.1f}s')
 
 # =====================================================================
-# 1. TRAYECTORIA 3D
+# 1. 3D TRAJECTORY
 # =====================================================================
 fig1 = plt.figure(figsize=(8, 7))
 ax = fig1.add_subplot(111, projection='3d')
@@ -90,7 +90,7 @@ ax.set_title(f'Trayectoria 3D{titulo_wp}')
 ax.legend()
 
 # =====================================================================
-# 2. ERROR 3D Y POR EJE VS. TIEMPO
+# 2. 3D AND PER-AXIS ERROR VS. TIME
 # =====================================================================
 fig2, (ax2a, ax2b) = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
 ax2a.plot(t_rel, df['err_mm'], color='crimson')
@@ -112,7 +112,7 @@ for wt in wp_change_times:
   ax2b.axvline(wt, color='blue', linestyle='--', alpha=0.4)
 
 # =====================================================================
-# 3. POR MOTOR: TICKS REALES VS. COMANDO VS. SUGERENCIA CRUDA
+# 3. PER MOTOR: REAL TICKS VS. COMMAND VS. RAW SUGGESTION
 # =====================================================================
 fig3, axes3 = plt.subplots(4, 1, figsize=(11, 10), sharex=True)
 for i, mid in enumerate(MOTOR_IDS):
@@ -143,7 +143,7 @@ axes3[-1].set_xlabel('Tiempo (s)')
 fig3.suptitle('Por motor: real vs. comando vs. sugerencia cruda del CEM')
 
 # =====================================================================
-# 4. COSTO DEL CEM VS. TIEMPO
+# 4. CEM COST VS. TIME
 # =====================================================================
 fig4, ax4 = plt.subplots(figsize=(11, 4))
 solo_hold = df[df['es_action_hold'] == 1]
@@ -156,7 +156,7 @@ for wt in wp_change_times:
   ax4.axvline(wt, color='blue', linestyle='--', alpha=0.4)
 
 # =====================================================================
-# 5. TIEMPO DE CÁLCULO Y FRECUENCIA REAL DEL LAZO
+# 5. COMPUTE TIME AND REAL LOOP FREQUENCY
 # =====================================================================
 fig5, (ax5a, ax5b) = plt.subplots(1, 2, figsize=(12, 4))
 ax5a.plot(t_rel, df['t_calc_ms'], color='teal', linewidth=0.8)
@@ -175,21 +175,21 @@ ax5b.set_title('Distribución del período real del lazo')
 ax5b.legend()
 
 # =====================================================================
-# 5b. FRECUENCIA POR TIPO DE CICLO: multi-arranque (incluye ancla Jacobiano
-# en modo hibrido/jacobiano) vs. CEM en régimen estable vs. hold
+# 5b. FREQUENCY BY CYCLE TYPE: multi-start (includes Jacobian anchor
+# in hybrid/jacobian mode) vs. steady-state CEM vs. hold
 # =====================================================================
-# es_action_hold==1 marca ciclos de RECÁLCULO (ver fig4 -- nombre engañoso,
-# confirmado por el resto del script); ==0 son ciclos de "hold" que repiten
-# el último comando sin llamar a optimize() (t_calc_ms≈0 ahí).
+# es_action_hold==1 marks RECOMPUTE cycles (see fig4 -- misleading name,
+# confirmed by the rest of the script); ==0 are "hold" cycles that repeat
+# the last command without calling optimize() (t_calc_ms≈0 there).
 #
-# El multi-arranque (que evalúa la ancla del Jacobiano junto con las demás)
-# se dispara SIEMPRE en el primer recálculo tras un cambio de target lógico
-# (wp_idx/intento_idx) -- eso es determinable con certeza desde el CSV. Los
-# ciclos de recálculo restantes son CEM en régimen estable, sin Jacobiano.
-# NOTA: el multi-arranque también puede dispararse por estancamiento genuino
-# (sin cambio de target) -- eso NO es detectable desde este CSV, así que
-# "multi-arranque" abajo es un piso (subestima levemente cuántos ciclos
-# tocaron el Jacobiano), no el total exacto.
+# The multi-start (which evaluates the Jacobian anchor along with the others)
+# ALWAYS fires on the first recompute after a logical target change
+# (wp_idx/intento_idx) -- that is determinable with certainty from the CSV. The remaining
+# recompute cycles are steady-state CEM, without Jacobian.
+# NOTE: the multi-start can also fire on genuine stagnation
+# (without a target change) -- that is NOT detectable from this CSV, so
+# "multi-start" below is a floor (it slightly underestimates how many cycles
+# touched the Jacobian), not the exact total.
 es_recalculo = df['es_action_hold'].values == 1
 bloque_id = np.concatenate([[0], np.cumsum(cambia_target)])
 df_tmp = pd.DataFrame({'bloque_id': bloque_id, 'es_recalculo': es_recalculo})
@@ -200,8 +200,8 @@ mask_multiarranque[primeros_recalculo_idx] = True
 mask_cem_estable = es_recalculo & ~mask_multiarranque
 mask_hold = ~es_recalculo
 
-# Alinear con dt_ms (dt_ms[i] = tiempo entre la fila i y la fila i+1, así
-# que el tipo relevante es el de la fila i+1, la que se acaba de calcular).
+# Align with dt_ms (dt_ms[i] = time between row i and row i+1, so
+# the relevant type is that of row i+1, the one that was just computed).
 grupos_dt = {
     'Multi-arranque (target nuevo, incl. Jacobiano)': mask_multiarranque[1:],
     'CEM régimen estable (sin Jacobiano)': mask_cem_estable[1:],
@@ -235,9 +235,9 @@ ax5c.set_title('Frecuencia por tipo de ciclo')
 ax5c.grid(True, alpha=0.3, axis='y')
 
 # =====================================================================
-# 6. PREDICCIÓN DEL MODELO (t_out ADELANTE) VS. REALIDAD
+# 6. MODEL PREDICTION (t_out AHEAD) VS. REALITY
 # =====================================================================
-# Ajustar si t_out cambia en el predictor (dataset_pred_*_params.json -> 't_out').
+# Adjust if t_out changes in the predictor (dataset_pred_*_params.json -> 't_out').
 T_OUT_STEPS = 10
 
 pred_valida = df['pred_tout_x_mm'].notna() if 'pred_tout_x_mm' in df.columns else pd.Series(False, index=df.index)

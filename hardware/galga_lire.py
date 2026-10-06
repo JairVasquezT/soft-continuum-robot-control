@@ -3,13 +3,13 @@ from Phidget22.Devices.VoltageRatioInput import *
 from Phidget22.PhidgetException import *
 
 # =====================================================================
-# CONFIGURACIÓN DE LAS CELDAS DE CARGA (GALGAS)
+# LOAD CELL (STRAIN GAUGE) CONFIGURATION
 # =====================================================================
-# El PhidgetBridge 4-Input tiene 4 canales (del 0 al 3)
-CANALES_A_LEER = [0, 1, 2, 3] # Modifica esto según cuántas galgas tengas conectadas (ej. [0, 1, 2, 3])
+# The PhidgetBridge 4-Input has 4 channels (0 to 3)
+CANALES_A_LEER = [0, 1, 2, 3] # Change this according to how many gauges you have connected (e.g. [0, 1, 2, 3])
 
-# Calibración por canal basada en tus medidas de 0 g, 500 g y 1910 g.
-# Se usa una aproximación lineal: gramos = slope * voltage_ratio + intercept
+# Per-channel calibration based on your measurements at 0 g, 500 g and 1910 g.
+# A linear approximation is used: grams = slope * voltage_ratio + intercept
 CALIBRACION_CELDAS = {
     0: {'slope': -4642909.486589756, 'intercept': -290.0718507585548},
     1: {'slope': -4821786.234979635, 'intercept': -137.17214442022848},
@@ -32,7 +32,7 @@ def convertir_a_gramos(canal, voltage_ratio):
 
 
 def al_recibir_cambio_voltaje(self, voltageRatio):
-    """ Función que se ejecuta automáticamente cada vez que la galga lee un valor """
+    """ Function that runs automatically every time the gauge reads a value """
     canal = self.getChannel()
     gramos = convertir_a_gramos(canal, voltageRatio)
     celdas[canal] = {
@@ -41,20 +41,20 @@ def al_recibir_cambio_voltaje(self, voltageRatio):
     }
 
 def inicializar_galgas():
-    """ Inicializa y conecta las celdas de carga en paralelo """
+    """ Initializes and connects the load cells in parallel """
     for canal in CANALES_A_LEER:
         try:
             ch = VoltageRatioInput()
             ch.setChannel(canal)
             
-            # Asignamos la función que manejará los datos cuando cambien
+            # We assign the function that will handle the data when they change
             ch.setOnVoltageRatioChangeHandler(al_recibir_cambio_voltaje)
             
-            # Abrimos el canal con un tiempo de espera de 5 segundos
+            # We open the channel with a 5-second timeout
             ch.openWaitForAttachment(5000)
             
-            # Configuración de rendimiento (frecuencia de muestreo en ms)
-            # 32ms equivale a ~31.25 Hz, ideal para alinearse con tus 30 Hz del OptiTrack
+            # Performance configuration (sampling rate in ms)
+            # 32ms is ~31.25 Hz, ideal to align with your 30 Hz OptiTrack
             ch.setDataInterval(32) 
             
             celdas[canal] = {'voltage_ratio': 0.0, 'grams': 0.0}
@@ -64,7 +64,7 @@ def inicializar_galgas():
             print(f"❌ Error al abrir el Canal {canal}: {e.description} (Código: {e.code})")
 
 # =====================================================================
-# PRUEBA DE LECTURA DIRECTA
+# DIRECT READING TEST
 # =====================================================================
 if __name__ == "__main__":
     print("Inicializando puente de galgas Phidget...")
@@ -73,15 +73,15 @@ if __name__ == "__main__":
     print("\nComenzando lectura. Presiona Ctrl+C para detener...")
     try:
         while True:
-            # Aquí tienes los valores limpios en un diccionario listos para tu código
-            # celdas[0] es la lectura del canal 0, celdas[1] del canal 1, etc.
+            # Here you have the clean values in a dictionary ready for your code
+            # celdas[0] is the reading of channel 0, celdas[1] of channel 1, etc.
             line = []
             for ch in CANALES_A_LEER:
                 info = celdas.get(ch, {'voltage_ratio': 0.0, 'grams': 0.0})
                 line.append(f"G{ch}: {info['voltage_ratio']:.6e} V/V ({info['grams']:.1f} g)")
             print("Lecturas actuales -> " + " | ".join(line), end="\r")
             
-            # Este delay simula el ciclo de tu bucle de adquisición (30 Hz)
+            # This delay simulates the cycle of your acquisition loop (30 Hz)
             time.sleep(0.033)
             
     except KeyboardInterrupt:

@@ -1,16 +1,16 @@
-"""Calibración secuencial de motores Dynamixel por búsqueda de punto medio basada en carga.
+"""Sequential calibration of Dynamixel motors by load-based midpoint search.
 
-El Dynamixel EX-106+ reporta Present Load con signo: negativo para CW (horario), positivo para CCW (antihorario).
-Se usa abs(present_load) >= 102 como umbral de detección (10% de carga).
+The Dynamixel EX-106+ reports Present Load with sign: negative for CW (clockwise), positive for CCW (counterclockwise).
+abs(present_load) >= 102 is used as the detection threshold (10% load).
 
-Proceso:
-1. Para cada motor (1, 2, 3, 4):
-   - Desactiva torque en todos los demás motores
-   - Activa torque en el motor actual
-   - Ejecuta búsqueda de punto medio (giro horario/antihorario hasta 10% carga)
-   - Guarda el punto medio como home_position
-2. Activa torque en todos los motores
-3. Mueve cada motor a su posición home calculada
+Process:
+1. For each motor (1, 2, 3, 4):
+   - Disable torque on all other motors
+   - Enable torque on the current motor
+   - Run midpoint search (clockwise/counterclockwise rotation up to 10% load)
+   - Save the midpoint as home_position
+2. Enable torque on all motors
+3. Move each motor to its computed home position
 """
 
 import time
@@ -21,8 +21,8 @@ from continuum_robot.config import robot_config as cfg
 
 def rotate_until_load(controller, motor_id: int, direction: int = 1, 
                       max_speed: int = 20, timeout: float = 8.0, poll_interval: float = 0.02):
-    """Gira el motor hasta que el cable de la polea alcance la tensión límite (~6%-7% carga)."""
-    LOAD_THRESHOLD = 65  # Detecta el fin de la holgura sin deformar en exceso la estructura
+    """Rotates the motor until the pulley cable reaches the limit tension (~6%-7% load)."""
+    LOAD_THRESHOLD = 65  # Detects the end of the slack without over-deforming the structure
     
     goal_pos = cfg.DXL_MAXIMUM_POSITION_VALUE if direction > 0 else cfg.DXL_MINIMUM_POSITION_VALUE
     
@@ -36,7 +36,7 @@ def rotate_until_load(controller, motor_id: int, direction: int = 1,
             pos = controller.get_present_position(motor_id)
             
             if magnitude >= LOAD_THRESHOLD:
-                # Detener inmediatamente para congelar la posición del límite de tensión
+                # Stop immediately to freeze the position of the tension limit
                 controller.set_goal_position(motor_id, pos)
                 print(f'  ✓ Motor {motor_id}: Tensión en cable detectada a pos {pos} (mag={magnitude})')
                 return pos
@@ -51,16 +51,16 @@ def rotate_until_load(controller, motor_id: int, direction: int = 1,
 
 
 def calibrate_single_motor(controller, motor_id: int) -> int:
-    """Busca el punto medio entre la tensión del Cable A y del Cable B de un mismo motor."""
+    """Finds the midpoint between Cable A's and Cable B's tension for a single motor."""
     print(f'\n--- Calibrando Motor {motor_id} ---')
     controller.enable_torque([motor_id])
     time.sleep(0.1)
     
-    # 1. Tensión Cable A (Sentido Horario)
+    # 1. Cable A Tension (Clockwise)
     pos_cw = rotate_until_load(controller, motor_id, direction=1, max_speed=20)
     time.sleep(0.2)
     
-    # 2. Tensión Cable B (Sentido Antihorario)
+    # 2. Cable B Tension (Counterclockwise)
     pos_ccw = rotate_until_load(controller, motor_id, direction=-1, max_speed=20)
     time.sleep(0.2)
     
@@ -68,46 +68,46 @@ def calibrate_single_motor(controller, motor_id: int) -> int:
         print(f'❌ ERROR en motor {motor_id}. Usando valor por defecto.')
         return cfg.HOME_POSITION[motor_id]
     
-    # El centro exacto entre ambos cables
+    # The exact center between both cables
     home_calc = int((pos_cw + pos_ccw) // 2)
     print(f'  Resultado Motor {motor_id}: Límite CW={pos_cw}, Límite CCW={pos_ccw} -> HOME = {home_calc}')
     return home_calc
 
 
 def calibrate_all_motors_sequential(controller, motor_ids: List[int] = None) -> Dict[int, int]:
-    """Calibración en Cascada por Niveles para evitar acoplamiento de fricción."""
+    """Cascaded calibration by Levels to avoid friction coupling."""
     home_positions = {}
     
     print('\n' + '='*60)
     print('INICIANDO CALIBRACIÓN POR NIVELES (CASCADA)')
     print('='*60)
     
-    # Define la estructura de tu robot por niveles
+    # Define your robot's structure by levels
     LEVEL_1_MOTORS = [1, 2]
     LEVEL_2_MOTORS = [3, 4]
     
     # -----------------------------------------------------------------
-    # ETAPA 1: Calibrar Nivel 1 (Base)
+    # STAGE 1: Calibrate Level 1 (Base)
     # -----------------------------------------------------------------
     print('\n>>> ETAPA 1: Calibrando Motores del Nivel 1 (Base)...')
     for mid in LEVEL_1_MOTORS:
         home_positions[mid] = calibrate_single_motor(controller, mid)
     
-    # ⚠️ PASO CLAVE: Mover Nivel 1 a su HOME para enderezar la estructura
+    # ⚠️ KEY STEP: Move Level 1 to its HOME to straighten the structure
     print('\n[Alineando Nivel 1 a Home Neutro antes de continuar...]')
     for mid in LEVEL_1_MOTORS:
         controller.move([mid], [home_positions[mid]], speed=cfg.DEFAULT_SPEED, wait_for_reached=True)
     time.sleep(0.5)
 
     # -----------------------------------------------------------------
-    # ETAPA 2: Calibrar Nivel 2 con la base recta
+    # STAGE 2: Calibrate Level 2 with the straight base
     # -----------------------------------------------------------------
     print('\n>>> ETAPA 2: Calibrando Motores del Nivel 2 (Efector superior)...')
     for mid in LEVEL_2_MOTORS:
         home_positions[mid] = calibrate_single_motor(controller, mid)
     
     # -----------------------------------------------------------------
-    # ETAPA FINAL: Mover todo el robot a su posición Home global
+    # FINAL STAGE: Move the whole robot to its global home position
     # -----------------------------------------------------------------
     print('\n' + '='*60)
     print(f'CALIBRACIÓN COMPLETA. Posiciones calculadas: {home_positions}')

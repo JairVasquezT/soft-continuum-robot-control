@@ -1,13 +1,13 @@
-"""Diagnóstico rápido: para HOME + varios combos de motor (uno por motor,
+"""Quick diagnostic: for HOME + several motor combos (one per motor,
 
-para aislar cuál cable/motor es sospechoso), compara la posición real medida
-por OptiTrack (relativa a la base) contra lo que predice el observador LSTM.
-Útil para detectar si un cable doblado hace que el modelo prediga mal en
-ciertas configuraciones.
+to isolate which cable/motor is suspect), compares the real position measured
+by OptiTrack (relative to the base) against what the LSTM observer predicts.
+Useful to detect whether a bent cable makes the model predict poorly in
+certain configurations.
 
-Ajustá HOME/OFFSET/PUNTOS/SETTLE_S más abajo según lo que quieras probar.
+Adjust HOME/OFFSET/PUNTOS/SETTLE_S below according to what you want to test.
 
-Uso: python continuum_robot/control/diagnostico_calibracion.py
+Usage: python continuum_robot/control/diagnostico_calibracion.py
 """
 import os
 import sys
@@ -38,7 +38,7 @@ except Exception:
     PhidgetForceController = None
 
 # ==============================================================================
-# Configuración editable
+# Editable configuration
 # ==============================================================================
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 OBSERVER_PATH = os.path.join(CURRENT_DIR, 'soft_robot_lstm_v8_12_time.pth')
@@ -46,14 +46,14 @@ METADATA_OBS_PATH = os.path.join(CURRENT_DIR, 'dataset_v08_completo_sinRot_filt_
 
 HOME = cfg.HOME_POSITION  # {1: 1871, 2: 1951, 3: 1485, 4: 1712}
 MOTOR_IDS = cfg.MOTOR_IDS
-OFFSET = 300      # ticks de desplazamiento para aislar cada motor
-SETTLE_S = 3.0    # segundos de espera tras cada movimiento antes de medir
+OFFSET = 300      # ticks of displacement to isolate each motor
+SETTLE_S = 3.0    # seconds to wait after each movement before measuring
 MUESTREO_HZ = 50.0
-T_IN = 45         # pasos de historial que espera el LSTM (igual que en MPC.py)
+T_IN = 45         # history steps the LSTM expects (same as in MPC.py)
 
-# HOME + un combo por motor (los demás quedan en HOME) -- así, si el error
-# se dispara justo cuando se mueve UN motor en particular, es un buen indicio
-# de que el cable de ESE motor es el problema.
+# HOME + one combo per motor (the others stay at HOME) -- this way, if the error
+# spikes right when ONE particular motor moves, it is a good sign
+# that THAT motor's cable is the problem.
 PUNTOS = [
     ("HOME", dict(HOME)),
     ("m1 +", {**HOME, 1: HOME[1] + OFFSET}),
@@ -65,7 +65,7 @@ PUNTOS = [
 
 
 # ==============================================================================
-# Observador LSTM (misma arquitectura que MPC.py)
+# LSTM observer (same architecture as MPC.py)
 # ==============================================================================
 class SoftRobotLSTM(nn.Module):
     def __init__(self, input_size=17, hidden_size=128, num_layers=2, output_size=3, dropout=0.2):
@@ -104,7 +104,7 @@ def cargar_observador(path, device):
 
 
 # ==============================================================================
-# Estado compartido de OptiTrack (actualizado async por NatNet)
+# Shared OptiTrack state (updated asynchronously by NatNet)
 # ==============================================================================
 p_base, q_base = [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]
 p_efector, q_efector = [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]
@@ -119,7 +119,7 @@ def on_frame(new_id, position, rotation):
 
 
 def posicion_relativa_mm():
-    """Misma fórmula que MPC.py: (p_efector - p_base) rotado al marco de la base."""
+    """Same formula as MPC.py: (p_effector - p_base) rotated into the base frame."""
     r_b = R.from_quat(q_base)
     p_rel = r_b.inv().apply(np.array(p_efector) - np.array(p_base))
     return p_rel * 1000.0
@@ -146,7 +146,7 @@ def main():
     observer = cargar_observador(OBSERVER_PATH, DEVICE)
     observer.eval()
 
-    # Filtro causal de torque (3.5 Hz), igual que en MPC.py
+    # Causal torque filter (3.5 Hz), same as in MPC.py
     nyquist = 0.5 * MUESTREO_HZ
     b, a = butter(2, 3.5 / nyquist, btype='low', analog=False)
     zi_torque = np.tile(lfilter_zi(b, a), (4, 1)).T
@@ -184,7 +184,7 @@ def main():
     client.set_server_address(cfg.OPTITRACK_HOST)
     client.rigid_body_listener = on_frame
     client.run()
-    time.sleep(1.0)  # dar tiempo a que lleguen los primeros frames
+    time.sleep(1.0)  # give time for the first frames to arrive
 
     resultados = []
 
@@ -196,7 +196,7 @@ def main():
             print(f'Asentando {SETTLE_S:.1f}s...')
             time.sleep(SETTLE_S)
 
-            # Refrescar el historial del LSTM con lecturas reales de ESTE punto
+            # Refresh the LSTM history with real readings from THIS point
             buffer = deque(maxlen=T_IN)
             intervalo = 1.0 / MUESTREO_HZ
             for _ in range(T_IN):

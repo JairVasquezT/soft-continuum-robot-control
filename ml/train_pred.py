@@ -8,21 +8,21 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, Subset
 
 # =====================================================================
-# 1. CONFIGURACIÓN Y HIPERPARÁMETROS
+# 1. CONFIGURATION AND HYPERPARAMETERS
 # =====================================================================
-# NOTA: 'corto' (grabación independiente) YA NO se usa acá para validar --
-# se reserva 100% como test ciego final (dataset_valid_pred_v8.py), sin
-# tocarse nunca durante el entrenamiento. Antes se usaba como val_loader
-# Y como "test" reportado al final, lo cual sesga esa métrica (el checkpoint
-# se elegía justamente por rendir bien ahí). La validación ahora sale de
-# 'largo' mismo, con el mismo split por bloques distribuidos que
-# train_v8_time_100_2.py (ver sección 4).
+# NOTE: 'corto' (independent recording) is NO LONGER used here for validation --
+# it is reserved 100% as the final blind test (dataset_valid_pred_v8.py), without
+# ever being touched during training. It used to be used as val_loader
+# AND as the "test" reported at the end, which biases that metric (the checkpoint
+# was chosen precisely for performing well there). Validation now comes from
+# 'largo' itself, with the same distributed-block split as
+# train_v8_time_100_2.py (see section 4).
 PATH_DATASET = 'dataset_pred_v07_completo_10_sinRot_directo_filt.npy'
 PATH_METADATA = 'dataset_pred_v07_completo_10_sinRot_directo_filt_params.json'
 
-# Ganancias de PINNLossMPC parametrizables por CLI (ver run_experimentos_pesos_loss.py
-# para el barrido de 16 combinaciones) -- los defaults reproducen el
-# comportamiento actual si se corre el script sin argumentos.
+# PINNLossMPC gains configurable via CLI (see run_experimentos_pesos_loss.py
+# for the sweep of 16 combinations) -- the defaults reproduce the
+# current behavior if the script is run without arguments.
 parser = argparse.ArgumentParser()
 parser.add_argument('--output', type=str, default='best_mpc_pinn_predictor_8_10_dir.pth')
 parser.add_argument('--epochs', type=int, default=100)
@@ -53,14 +53,14 @@ DROPOUT = 0.1
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'🚀 Entrenando en dispositivo: {DEVICE}')
 
-# Cargar parámetros de escalado desde el JSON
+# Load scaling parameters from the JSON
 with open(PATH_METADATA, 'r') as f:
   metadata = json.load(f)
 params_y = metadata['Y_transformer']
 
 
 # =====================================================================
-# 2. FUNCIÓN DE PÉRDIDA INFORMADA POR LA FÍSICA (PINN LOSS)
+# 2. PHYSICS-INFORMED LOSS FUNCTION (PINN LOSS)
 # =====================================================================
 class PINNLossMPC(nn.Module):
 
@@ -68,16 +68,16 @@ class PINNLossMPC(nn.Module):
       self,
       params_y,
       w_mse=1.0,
-      w_direction_3d=0.0,#el primero fue 0.0
+      w_direction_3d=0.0,#the first one was 0.0
       w_sph_max=5.0,
       w_sph_min=5.0,
       w_cyl_max=5.0,
       w_speed=0.0,
       w_smooth=0.0,
       w_quat=0.0,
-      max_step_dist=0.003,  # 1.0 cm por paso (16.7 ms)
+      max_step_dist=0.003,  # 1.0 cm per step (16.7 ms)
       pesos_ejes_mse=(2.0, 1.0, 2.0),  # [X, Y, Z]
-      salto_direccion=4,  # t+1 vs t+5 en vez de t+1 vs t+2 (más ruidoso)
+      salto_direccion=4,  # t+1 vs t+5 instead of t+1 vs t+2 (noisier)
   ):
     super(PINNLossMPC, self).__init__()
     self.params_y = params_y
@@ -117,50 +117,50 @@ class PINNLossMPC(nn.Module):
     return x_real, y_real, z_real
 
   def forward(self, y_pred, y_true, horizontes_validos):
-    # horizontes_validos: [batch] -- cantidad de pasos futuros consecutivos
-    # (desde t+1) que son realmente válidos para esa muestra (ver
-    # calcular_horizonte_valido en dataset_pred_filt.py: corta en el primer
-    # paso donde cambia el comando, hay dropout de OptiTrack o la
-    # frecuencia cae). mask_paso[b, j] = True si el paso j (0-indexado) es
-    # válido para la muestra b -- se usa para enmascarar TODOS los términos
-    # de la loss que leen pasos del horizonte, no solo el MSE, para que
-    # ninguno promedie basura más allá del horizonte válido de cada
-    # muestra. Todos los promedios se normalizan por la cantidad TOTAL de
-    # elementos válidos en el lote (no por muestra), para que cada paso de
-    # tiempo válido pese igual sin importar de qué muestra vino (una
-    # muestra con horizonte corto no debe pesar como una completa).
+    # horizontes_validos: [batch] -- number of consecutive future steps
+    # (from t+1) that are actually valid for that sample (see
+    # calcular_horizonte_valido in dataset_pred_filt.py: it cuts at the first
+    # step where the command changes, there is an OptiTrack dropout, or the
+    # frequency drops). mask_paso[b, j] = True if step j (0-indexed) is
+    # valid for sample b -- it is used to mask ALL the loss terms
+    # that read steps of the horizon, not just the MSE, so that
+    # none of them averages garbage beyond the valid horizon of each
+    # sample. All averages are normalized by the TOTAL number of
+    # valid elements in the batch (not per sample), so that each valid time
+    # step weighs the same regardless of which sample it came from (a
+    # sample with a short horizon should not weigh as much as a full one).
     batch_size, t_out_actual, _ = y_pred.shape
     idx_paso = torch.arange(t_out_actual, device=y_pred.device).unsqueeze(0)  # [1, T]
     mask_paso = idx_paso < horizontes_validos.unsqueeze(1)  # [batch, T] bool
     mask_paso_f = mask_paso.unsqueeze(-1).float()  # [batch, T, 1]
 
-    # 1. MSE Ponderado por Eje en Espacio Escalado [-1, 1], enmascarado
+    # 1. Axis-Weighted MSE in Scaled Space [-1, 1], masked
     error_xyz_escalado = (y_pred[:, :, :3] - y_true[:, :, :3]) ** 2 * self.pesos_ejes_mse
     error_enmascarado = error_xyz_escalado * mask_paso_f
     loss_mse_ponderado = error_enmascarado.sum() / (mask_paso_f.sum() * 3 + 1e-8)
 
-    # 2. Desescalar a Metros Reales
+    # 2. Unscale to Real Meters
     x_pred, y_pred_real, z_pred = self.desescalar_xyz(y_pred)
     x_true, y_true_real, z_true = self.desescalar_xyz(y_true)
 
     pos_pred = torch.stack([x_pred, y_pred_real, z_pred], dim=-1)
     pos_true = torch.stack([x_true, y_true_real, z_true], dim=-1)
 
-    # 3. Dirección en 3D -- comparando puntos separados por
-    # self.salto_direccion pasos (p.ej. t+1 vs t+5 con salto=4) en vez de
-    # pasos consecutivos (t+1 vs t+2): a un paso de distancia el
-    # desplazamiento real es tan chico que la dirección es puro ruido: con
-    # más separación el vector de desplazamiento es más largo y su
-    # dirección más estable/significativa. Una transición (k, k+s) es
-    # válida solo si el paso k+s (el más lejano) es válido -- si lo es, k
-    # también lo es porque horizonte_valido cuenta pasos consecutivos desde
-    # el inicio.
+    # 3. Direction in 3D -- comparing points separated by
+    # self.salto_direccion steps (e.g. t+1 vs t+5 with salto=4) instead of
+    # consecutive steps (t+1 vs t+2): at one step apart the
+    # real displacement is so small that the direction is pure noise: with
+    # more separation the displacement vector is longer and its
+    # direction more stable/meaningful. A transition (k, k+s) is
+    # valid only if step k+s (the farthest) is valid -- if it is, k
+    # is too, because horizonte_valido counts consecutive steps from
+    # the start.
     s = self.salto_direccion
     dir_pred_3d = pos_pred[:, s:, :] - pos_pred[:, :-s, :]
     dir_true_3d = pos_true[:, s:, :] - pos_true[:, :-s, :]
 
     norm_true_3d = torch.norm(dir_true_3d, dim=-1)
-    mask_movimiento = norm_true_3d > 0.0005  # Movimientos > 0.5 mm
+    mask_movimiento = norm_true_3d > 0.0005  # Movements > 0.5 mm
     mask_horizonte_dir = mask_paso[:, s:]
     mask_dir_total = mask_movimiento & mask_horizonte_dir
 
@@ -174,7 +174,7 @@ class PINNLossMPC(nn.Module):
     else:
       loss_direction_3d = torch.tensor(0.0, device=y_pred.device)
 
-    # 4. Geometría Espacial -- penalización por paso, enmascarada por paso
+    # 4. Spatial Geometry -- per-step penalty, masked per step
     mask_paso_2d = mask_paso.float()  # [batch, T]
     n_pasos_validos = mask_paso_2d.sum() + 1e-8
 
@@ -191,9 +191,9 @@ class PINNLossMPC(nn.Module):
         + self.w_cyl_max * (pen_cyl_max * mask_paso_2d).sum() / n_pasos_validos
     )
 
-    # 5. Velocidad y Suavizado -- una transición/aceleración es válida si el
-    # paso MÁS LEJANO que involucra (k+1 para velocidad, k+2 para
-    # aceleración) es válido, mismo criterio que la dirección.
+    # 5. Velocity and Smoothing -- a transition/acceleration is valid if the
+    # FARTHEST step it involves (k+1 for velocity, k+2 for
+    # acceleration) is valid, same criterion as direction.
     paso_diffs = pos_pred[:, 1:, :] - pos_pred[:, :-1, :]
     dist_por_paso = torch.norm(paso_diffs, dim=-1)
     mask_vel = mask_paso[:, 1:].float()
@@ -213,7 +213,7 @@ class PINNLossMPC(nn.Module):
       pen_quat = (norm_q - 1.0) ** 2
       loss_quat = self.w_quat * (pen_quat * mask_paso_2d).sum() / n_pasos_validos
 
-    # Pérdida Total PINN
+    # Total PINN Loss
     total_loss = (
         self.w_mse * loss_mse_ponderado
         + self.w_direction_3d * loss_direction_3d
@@ -233,7 +233,7 @@ class PINNLossMPC(nn.Module):
 
 
 # =====================================================================
-# 3. DATASET Y MODELO (IGUAL QUE ANTES)
+# 3. DATASET AND MODEL (SAME AS BEFORE)
 # =====================================================================
 class MPCDataset(Dataset):
 
@@ -296,17 +296,17 @@ class MPCDirectPredictor(nn.Module):
 
 
 # =====================================================================
-# 4. PREPARACIÓN DE DATOS -- SPLIT TRAIN/VAL REPARTIDO Y SIN FUGA (sobre 'largo')
+# 4. DATA PREPARATION -- DISTRIBUTED, LEAK-FREE TRAIN/VAL SPLIT (over 'largo')
 # =====================================================================
-# Igual estrategia que train_v8_time_100_2.py: 'largo' se divide en
-# N_BLOQUES contiguos a lo largo de TODA la grabación (no solo el tramo
-# final); una fracción FRAC_VAL de esos bloques, repartidos uniformemente,
-# se reserva para validación. La diferencia con v8 es que acá el ventaneo
-# YA ocurrió en dataset_pred_filt.py (cada muestra k de X_hist/U_cand/Y_fut
-# cubre un rango de T_IN+T_OUT filas originales) -- por eso, en vez de
-# generar ventanas nuevas, se descarta cualquier muestra k cuyo margen de
-# solapamiento (k hasta k+T_IN+T_OUT) cruce un borde entre un bloque de
-# train y uno de val, para que ningún par comparta filas originales.
+# Same strategy as train_v8_time_100_2.py: 'largo' is divided into
+# N_BLOQUES contiguous blocks across the WHOLE recording (not just the final
+# stretch); a fraction FRAC_VAL of those blocks, uniformly distributed,
+# is reserved for validation. The difference with v8 is that here the windowing
+# ALREADY happened in dataset_pred_filt.py (each sample k of X_hist/U_cand/Y_fut
+# covers a range of T_IN+T_OUT original rows) -- so, instead of
+# generating new windows, any sample k whose overlap margin
+# (k up to k+T_IN+T_OUT) crosses a border between a
+# train block and a val block is discarded, so that no pair shares original rows.
 FRAC_VAL = 0.10
 N_BLOQUES = 20
 
@@ -364,7 +364,7 @@ val_loader = DataLoader(
 )
 
 # =====================================================================
-# 5. INSTANCIACIÓN Y OPTIMIZADOR
+# 5. INSTANTIATION AND OPTIMIZER
 # =====================================================================
 model = MPCDirectPredictor(
     input_hist_dim=input_hist_dim,
@@ -376,7 +376,7 @@ model = MPCDirectPredictor(
     dropout=DROPOUT,
 ).to(DEVICE)
 
-# Criterio PINN
+# PINN criterion
 criterion = PINNLossMPC(
     params_y=params_y,
     w_mse=args.w_mse,
@@ -404,7 +404,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(
 )
 
 # =====================================================================
-# 6. ENTRENAMIENTO Y VALIDACIÓN ALINEADOS
+# 6. ALIGNED TRAINING AND VALIDATION
 # =====================================================================
 best_val_loss = float('inf')
 history_train_loss, history_val_loss = [], []
@@ -435,7 +435,7 @@ for epoch in range(1, EPOCHS + 1):
 
   train_loss /= train_size
 
-  # Validación alineada con PINN Loss
+  # Validation aligned with PINN Loss
   model.eval()
   val_loss_sum = 0.0
   val_mse_sum = 0.0
@@ -462,7 +462,7 @@ for epoch in range(1, EPOCHS + 1):
   val_mse = val_mse_sum / val_size
   val_componentes = {nombre: v / val_size for nombre, v in val_componentes_sum.items()}
 
-  # El Scheduler y el Guardado responden a la Pérdida Total PINN
+  # The Scheduler and Saving respond to the Total PINN Loss
   scheduler.step(val_loss)
 
   history_train_loss.append(train_loss)

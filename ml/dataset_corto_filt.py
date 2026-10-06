@@ -1,16 +1,16 @@
-"""Procesa un CSV 'corto' (grabación independiente de 'largo') a un .npy
-listo para usarse como set de VALIDACIÓN real del observador (SoftRobotLSTM),
-reutilizando los parámetros de escalado (min_t/max_t) del dataset de
-entrenamiento -- nunca recalculando límites propios sobre 'corto'.
+"""Processes a 'corto' CSV (recording independent from 'largo') into a .npy
+ready to be used as a real VALIDATION set for the observer (SoftRobotLSTM),
+reusing the scaling parameters (min_t/max_t) of the training dataset
+-- never recomputing its own limits on 'corto'.
 
-Guarda {'X': X_scaled, 'Y': Y_scaled} con el mismo formato "plano" (sin
-ventanear) que produce dataset_filtre.py -- el ventaneo (crear_secuencias,
-WINDOW_SIZE) se hace en el script de entrenamiento, igual que con 'largo'.
+Saves {'X': X_scaled, 'Y': Y_scaled} with the same "flat" format (not
+windowed) as produced by dataset_filtre.py -- the windowing (crear_secuencias,
+WINDOW_SIZE) is done in the training script, as with 'largo'.
 
-Misma fórmula de posición/rotación relativa que MPC.py en inferencia y que
-dataset_filtre.py en entrenamiento: p_rel = R_base.inv().apply(p_efector - p_base).
+Same relative position/rotation formula as MPC.py at inference and as
+dataset_filtre.py at training: p_rel = R_base.inv().apply(p_efector - p_base).
 
-Uso: ajustar PATH_CSV_CORTO / PATH_METADATA_LARGO abajo y correr.
+Usage: adjust PATH_CSV_CORTO / PATH_METADATA_LARGO below and run.
 """
 import json
 import numpy as np
@@ -19,7 +19,7 @@ from scipy.signal import butter, filtfilt
 from scipy.spatial.transform import Rotation as R
 
 # =====================================================================
-# 1. CONFIGURACIÓN
+# 1. CONFIGURATION
 # =====================================================================
 PATH_CSV_CORTO = 'corto_20260730_195350_730.csv'
 PATH_METADATA_LARGO = 'dataset_v01_completo_sinRot_filt_params.json'
@@ -28,7 +28,7 @@ NOMBRE_SALIDA = 'dataset_corto_v01_completo_sinRot_filt'
 FS_SISTEMA = 60.0
 
 # =====================================================================
-# 2. METADATA DE ENTRENAMIENTO (escalado y calibración a reutilizar)
+# 2. TRAINING METADATA (scaling and calibration to be reused)
 # =====================================================================
 with open(PATH_METADATA_LARGO, 'r') as f:
   metadata = json.load(f)
@@ -37,13 +37,13 @@ X_TRANS = metadata['X_transformer']
 Y_TRANS = metadata['Y_transformer']
 ANGULOS_CALIBRACION = metadata['home_motores']
 
-# El orden de las columnas de entrenamiento queda fijado por el orden de
-# claves del JSON (Python/json preservan el orden de inserción).
+# The order of the training columns is fixed by the order of
+# the JSON keys (Python/json preserve insertion order).
 x_keys = list(X_TRANS.keys())
 y_keys = list(Y_TRANS.keys())
 
 # =====================================================================
-# 3. CARGA Y LECTURA DEL CSV DE CORTO
+# 3. LOADING AND READING THE 'CORTO' CSV
 # =====================================================================
 columnas = [
     'timestamp',
@@ -89,7 +89,7 @@ df = df.iloc[1:].reset_index(drop=True)
 print(f'✓ Muestras de corto cargadas ({len(df)} filas)')
 
 # =====================================================================
-# 4. GEOMETRÍA: DELTAS DE MOTOR + POSICIÓN/ROTACIÓN RELATIVA AL MARCO DE LA BASE
+# 4. GEOMETRY: MOTOR DELTAS + POSITION/ROTATION RELATIVE TO THE BASE FRAME
 # =====================================================================
 for i in range(1, 5):
   df[f'delta_real_m{i}'] = df[f'real_m{i}'] - ANGULOS_CALIBRACION[f'm{i}']
@@ -115,7 +115,7 @@ df['rel_qx'], df['rel_qy'], df['rel_qz'], df['rel_qw'] = (
 )
 
 # =====================================================================
-# 5. FILTRADO PASABAJAS (mismos cutoffs que dataset_filtre.py)
+# 5. LOW-PASS FILTERING (same cutoffs as dataset_filtre.py)
 # =====================================================================
 def aplicar_filtro_pasabajas(data, cutoff_hz, fs_hz=FS_SISTEMA, order=2):
   nyquist = 0.5 * fs_hz
@@ -149,7 +149,7 @@ for i in range(1, 5):
 print('✓ Filtrado completado.')
 
 # =====================================================================
-# 6. ESCALADO CON LOS PARÁMETROS DE ENTRENAMIENTO (NO recalcular límites)
+# 6. SCALING WITH THE TRAINING PARAMETERS (do NOT recompute limits)
 # =====================================================================
 def escalar_con_parametros(df_raw, columnas_nombres, dict_params):
   scaled = np.zeros((len(df_raw), len(columnas_nombres)), dtype=np.float32)

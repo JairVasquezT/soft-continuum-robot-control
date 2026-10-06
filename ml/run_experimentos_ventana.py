@@ -1,22 +1,22 @@
-"""Corre train_v1/v2/v7/v8 con varias configuraciones, una tras otra.
+"""Runs train_v1/v2/v7/v8 with several configurations, one after another.
 
-FASE 1 — barrido de WINDOW_SIZE con la configuración base (arquitectura y LR
-actuales de cada script): 45, 60, 75, 90, 105, 120.
+PHASE 1 — WINDOW_SIZE sweep with the base configuration (architecture and LR
+current in each script): 45, 60, 75, 90, 105, 120.
 
-FASE 2 — con la ventana por defecto de cada script (90), prueba 3
-configuraciones alternativas de arquitectura/LR, pensadas para no tocar los
-pesos de la loss (w_pinn, w_sph_*, w_cyl_*) que ya causaron el colapso al
-centro en una corrida anterior:
-  - mayor_capacidad: hidden_size 128->192, dropout 0.2->0.25 (compensa la
-    capacidad extra para no sobreajustar).
-  - mas_profunda:    num_layers 2->3, dropout 0.2->0.3 (misma razón).
-  - lr_bajo:         learning rate a la mitad del valor base del script,
-    para ver si converge a un mínimo mejor con pasos más finos.
+PHASE 2 — with each script's default window (90), tries 3
+alternative architecture/LR configurations, designed not to touch the
+loss weights (w_pinn, w_sph_*, w_cyl_*) that already caused the collapse to
+the center in a previous run:
+  - mayor_capacidad: hidden_size 128->192, dropout 0.2->0.25 (compensates the
+    extra capacity to avoid overfitting).
+  - mas_profunda:    num_layers 2->3, dropout 0.2->0.3 (same reason).
+  - lr_bajo:         learning rate at half of the script's base value,
+    to see whether it converges to a better minimum with finer steps.
 
-Cada combinación se lanza en un subproceso con --window_size/--output (y en
-fase 2 también --hidden_size/--num_layers/--dropout/--lr), y toda la salida
-(incluidas las líneas de "Época [...] -> ...") se escribe en tiempo real en
-un .txt dentro de logs_experimentos/, además de mostrarse en consola.
+Each combination is launched in a subprocess with --window_size/--output (and in
+phase 2 also --hidden_size/--num_layers/--dropout/--lr), and all the output
+(including the "Época [...] -> ..." lines) is written in real time to
+a .txt inside logs_experimentos/, in addition to being shown on the console.
 """
 
 import argparse
@@ -30,9 +30,9 @@ BASE_DIR = Path(__file__).resolve().parent
 LOG_DIR = BASE_DIR / 'logs_experimentos'
 LOG_DIR.mkdir(exist_ok=True)
 
-# Al redirigir stdout a un pipe, Windows hace que el hijo use el codepage
-# ANSI local (cp1252) en vez de UTF-8, lo que revienta los prints con
-# emojis (🔥, 📦, ⭐, ...). Forzamos UTF-8 en el entorno del subproceso.
+# When stdout is redirected to a pipe, Windows makes the child use the local
+# ANSI codepage (cp1252) instead of UTF-8, which breaks prints with
+# emojis (🔥, 📦, ⭐, ...). We force UTF-8 in the subprocess environment.
 ENV_SUBPROCESO = os.environ.copy()
 ENV_SUBPROCESO['PYTHONIOENCODING'] = 'utf-8'
 ENV_SUBPROCESO['PYTHONUTF8'] = '1'
@@ -40,8 +40,8 @@ ENV_SUBPROCESO['PYTHONUTF8'] = '1'
 WINDOW_SIZES = [45, 60, 75, 90, 105, 120]
 WINDOW_FIJO_FASE2 = 90
 
-# script, plantilla de salida fase 1 ({w}=ventana), plantilla fase 2
-# ({w}=ventana, {cfg}=nombre de config), lr base del script
+# script, phase 1 output template ({w}=window), phase 2 template
+# ({w}=window, {cfg}=config name), base lr of the script
 EXPERIMENTOS = [
     {
         'script': 'train_v1_time.py',
@@ -69,9 +69,9 @@ EXPERIMENTOS = [
     },
 ]
 
-# Configuraciones alternativas de arquitectura/LR para la fase 2.
-# Cada override que falte se queda con el default del script (hidden=128,
-# num_layers=2, dropout=0.2). 'lr_factor' se multiplica por el lr_base.
+# Alternative architecture/LR configurations for phase 2.
+# Any missing override keeps the script default (hidden=128,
+# num_layers=2, dropout=0.2). 'lr_factor' is multiplied by lr_base.
 CONFIGS_EXTRA = [
     {'nombre': 'mayor_capacidad', 'hidden_size': 192, 'dropout': 0.25},
     {'nombre': 'mas_profunda', 'num_layers': 3, 'dropout': 0.3},
@@ -112,10 +112,10 @@ def ejecutar(script, output_name, extra_args, etiqueta):
 
 
 def construir_plan():
-  """Arma la lista completa y ordenada de corridas (fase 1 + fase 2)."""
+  """Builds the complete, ordered list of runs (phase 1 + phase 2)."""
   plan = []
 
-  # FASE 1: barrido de ventana con configuración base
+  # PHASE 1: window sweep with base configuration
   for exp in EXPERIMENTOS:
     for w in WINDOW_SIZES:
       plan.append({
@@ -125,7 +125,7 @@ def construir_plan():
           'etiqueta': f'w{w}',
       })
 
-  # FASE 2: configuraciones alternativas en la ventana fija
+  # PHASE 2: alternative configurations on the fixed window
   for exp in EXPERIMENTOS:
     for cfg in CONFIGS_EXTRA:
       extra_args = ['--window_size', str(WINDOW_FIJO_FASE2)]

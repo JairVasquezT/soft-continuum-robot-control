@@ -6,22 +6,22 @@ import matplotlib.pyplot as plt
 import json
 
 # ==========================================
-# 1. CONFIGURACIÓN Y CARGA DE DATOS (VERSION V1)
+# 1. CONFIGURATION AND DATA LOADING (VERSION V1)
 # ==========================================
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"🔥 Entrenando en el dispositivo: {device}")
 
-# Cargar el dataset v2 (vienen X e Y empaquetados en un diccionario)
+# Load the v2 dataset (X and Y come packed in a dictionary)
 data_v2 = np.load('dataset_v2_conMeta_sinRot.npy', allow_pickle=True).item()
-X_raw = data_v2['X']  # Contiene: delta_real_m1 a m4 (4 columnas) y delta_meta_m1 a m4 (4 columnas)
-Y_raw = data_v2['Y']  # Contiene: rel_x, rel_y, rel_z (3 columnas)
+X_raw = data_v2['X']  # Contains: delta_real_m1 to m4 (4 columns) and delta_meta_m1 to m4 (4 columns)
+Y_raw = data_v2['Y']  # Contains: rel_x, rel_y, rel_z (3 columns)
 
-# Cargar los parámetros de normalización JSON
+# Load the JSON normalization parameters
 with open('dataset_v2_conMeta_sinRot_params.json', 'r') as f:
     norm_params = json.load(f)
 
 # ==========================================
-# 2. CREACIÓN DE VENTANAS TEMPORALES
+# 2. CREATION OF TEMPORAL WINDOWS
 # ==========================================
 def crear_secuencias(X, Y, window_size=90):
     X_seq, Y_seq = [], []
@@ -33,21 +33,21 @@ def crear_secuencias(X, Y, window_size=90):
 WINDOW_SIZE = 20
 X_windows, Y_windows = crear_secuencias(X_raw, Y_raw, window_size=WINDOW_SIZE)
 
-# Convertir a Tensores de PyTorch
+# Convert to PyTorch Tensors
 X_tensor = torch.tensor(X_windows, dtype=torch.float32).to(device)
 Y_tensor = torch.tensor(Y_windows, dtype=torch.float32).to(device)
 
-# División SECUENCIAL CRONOLÓGICA (Evita que el test conozca el pasado inmediato)
+# SEQUENTIAL CHRONOLOGICAL split (Prevents the test set from knowing the immediate past)
 #train_size = int(0.8 * len(X_tensor))
 #X_train, X_test = X_tensor[:train_size], X_tensor[train_size:]
 #y_train, y_test = Y_tensor[:train_size], Y_tensor[train_size:]
 
-# DataLoader con Shuffle habilitado para romper correlación entre épocas
+# DataLoader with Shuffle enabled to break correlation between epochs
 #train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=64, shuffle=True)
 train_loader = DataLoader(TensorDataset(X_tensor, Y_tensor), batch_size=64, shuffle=True)
 
 # ==========================================
-# 3. ARQUITECTURA LSTM MODIFICADA (INPUT_SIZE = 4)
+# 3. MODIFIED LSTM ARCHITECTURE (INPUT_SIZE = 4)
 # ==========================================
 class SoftRobotLSTM(nn.Module):
     def __init__(self, input_size=4, hidden_size=128, num_layers=2, output_size=3, dropout=0.0):
@@ -68,17 +68,17 @@ class SoftRobotLSTM(nn.Module):
         out_regularized = self.dropout(last_step)
         return self.fc(out_regularized)
 
-# Instanciar el modelo para V2 (8 entradas -> 3 salidas)
+# Instantiate the model for V2 (8 inputs -> 3 outputs)
 model = SoftRobotLSTM(input_size=8, hidden_size=64, num_layers=2, output_size=3, dropout=0.2).to(device)
 
 # ==========================================
-# 4. CONFIGURACIÓN DEL OPTIMIZADOR Y COSTO
+# 4. OPTIMIZER AND COST CONFIGURATION
 # ==========================================
 criterion = nn.HuberLoss() # MAE
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
 
 # ==========================================
-# 5. BUCLE DE ENTRENAMIENTO
+# 5. TRAINING LOOP
 # ==========================================
 EPOCHS = 150  
 history_loss = []
@@ -93,7 +93,7 @@ for epoch in range(EPOCHS):
         loss = criterion(predictions, batch_y)
         loss.backward()
         
-        # Clip de gradiente para proteger estabilidad numérica
+        # Gradient clipping to protect numerical stability
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         
         optimizer.step()
@@ -106,7 +106,7 @@ for epoch in range(EPOCHS):
         print(f"Época [{epoch+1}/{EPOCHS}] -> Error Promedio (MAE Norm): {avg_loss:.5f}")
 
 # ==========================================
-# 6. EVALUACIÓN EN DATOS DE TEST COREADOS
+# 6. EVALUATION ON TEST DATA
 # ==========================================
 '''
 model.eval()
@@ -123,12 +123,12 @@ test_predictions_scaled = np.vstack(test_preds_list)
 y_test_real_scaled = y_test.cpu().numpy()
 '''
 
-# Guardar los pesos entrenados
+# Save the trained weights
 torch.save(model.state_dict(), 'soft_robot_lstm_v2_1.pth')
 print("🧠 Pesos guardados como 'soft_robot_lstm_v2_1.pth'")
 
 # ==========================================
-# 7. TRADUCTOR REVERSO MATEMÁTICO (DESNORMALIZACIÓN DESDE JSON)
+# 7. MATHEMATICAL REVERSE TRANSLATOR (DENORMALIZATION FROM JSON)
 # ==========================================
 def desnormalizar_coordenadas(data_scaled, params_json):
     data_mm = np.zeros_like(data_scaled)
@@ -138,11 +138,11 @@ def desnormalizar_coordenadas(data_scaled, params_json):
         min_t = params_json['Y_transformer'][eje]['min_t']
         max_t = params_json['Y_transformer'][eje]['max_t']
         
-        # Despeje de la normalización [-1, 1]:
+        # Solving the [-1, 1] normalization for raw:
         # raw = min_t + ((scaled + 1) / 2) * (max_t - min_t)
         data_mm[:, idx] = min_t + ((data_scaled[:, idx] + 1) / 2) * (max_t - min_t)
         
-    return data_mm * 1000.0  # Multiplicamos por 1000 si deseas visualizarlo en milímetros puros
+    return data_mm * 1000.0  # Multiply by 1000 if you want to view it in pure millimeters
 
 '''
 # Convertir predicciones y valores reales del test a unidades físicas
@@ -166,7 +166,7 @@ print("=======================================================\n")
 
 '''
 # ==========================================
-# 8. GRAFICAR RESULTADOS DEL TEST SEGUIDO
+# 8. PLOT RESULTS OF THE CONSECUTIVE TEST
 # ==========================================
 '''
 plt.figure(figsize=(12, 5))

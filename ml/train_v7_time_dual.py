@@ -6,7 +6,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
 # ==========================================
-# 1. CONFIGURACIÓN Y CARGA DE DATOS (MODELO V7)
+# 1. CONFIGURATION AND DATA LOADING (V7 MODEL)
 # ==========================================
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'🔥 Entrenando Modelo V7 (13 Entradas -> 3 Salidas) en: {device}')
@@ -15,9 +15,9 @@ PATH_DATASET_NPY = 'dataset_v07_real_meta_tension_sinRot_filt.npy'
 PATH_DATASET_JSON = 'dataset_v07_real_meta_tension_sinRot_filt_params.json'
 PATH_PESOS_SALIDA = 'soft_robot_lstm_v7_5_45win.pth'
 
-# Cargar matrices escaladas [-1, 1]
+# Load scaled matrices [-1, 1]
 data_v7 = np.load(PATH_DATASET_NPY, allow_pickle=True).item()
-X_raw = data_v7['X']  # shape: (N, 13) -> 9 cinemáticos + 4 tensiones
+X_raw = data_v7['X']  # shape: (N, 13) -> 9 kinematic + 4 tensions
 Y_raw = data_v7['Y']  # shape: (N, 3)  -> rel_x, rel_y, rel_z
 
 with open(PATH_DATASET_JSON, 'r') as f:
@@ -31,7 +31,7 @@ print(
 )
 
 # ==========================================
-# 2. CREACIÓN DE VENTANAS Y DIVISIÓN 85% TRAIN / 15% VAL
+# 2. WINDOW CREATION AND 85% TRAIN / 15% VAL SPLIT
 # ==========================================
 WINDOW_SIZE = 45
 
@@ -46,7 +46,7 @@ def crear_secuencias(X, Y, window_size=45):
 
 X_windows, Y_windows = crear_secuencias(X_raw, Y_raw, window_size=WINDOW_SIZE)
 
-# 🆕 DIVISIÓN SECUENCIAL (85% Train / 15% Validation)
+# 🆕 SEQUENTIAL SPLIT (85% Train / 15% Validation)
 val_size = int(len(X_windows) * 0.15)
 train_size = len(X_windows) - val_size
 
@@ -57,7 +57,7 @@ print(f'📊 Ventanas creadas: Total = {len(X_windows)}')
 print(f' ▫ Entrenando con: {len(X_train)} muestras (85%)')
 print(f' ▫ Validando con:  {len(X_val)} muestras (15%)')
 
-# DataLoaders independientes
+# Independent DataLoaders
 train_loader = DataLoader(
     TensorDataset(
         torch.tensor(X_train, dtype=torch.float32),
@@ -73,12 +73,12 @@ val_loader = DataLoader(
         torch.tensor(Y_val, dtype=torch.float32),
     ),
     batch_size=64,
-    shuffle=False,  # En validación se mantiene el orden sin shuffle
+    shuffle=False,  # In validation the order is kept, without shuffle
 )
 
 
 # ==========================================
-# 3. PÉRDIDA FÍSICA FUSIONADA (PINN LOSS)
+# 3. FUSED PHYSICS LOSS (PINN LOSS)
 # ==========================================
 class RobotBlandoLoss(nn.Module):
 
@@ -113,7 +113,7 @@ class RobotBlandoLoss(nn.Module):
   def forward(self, y_pred, y_true):
     loss_base = self.base_loss(y_pred, y_true)
 
-    # Desescalar predicciones a metros
+    # Unscale predictions to meters
     x_real = self.min_x + (y_pred[:, 0] + 1.0) * (self.max_x - self.min_x) / 2.0
     y_real = self.min_y + (y_pred[:, 1] + 1.0) * (self.max_y - self.min_y) / 2.0
     z_real = self.min_z + (y_pred[:, 2] + 1.0) * (self.max_z - self.min_z) / 2.0
@@ -138,7 +138,7 @@ criterion = RobotBlandoLoss(y_params=Y_TRANS, w_pinn=0.05)
 
 
 # ==========================================
-# 4. ARQUITECTURA MULTIRRAMA (DUAL-STREAM V7)
+# 4. MULTI-BRANCH ARCHITECTURE (DUAL-STREAM V7)
 # ==========================================
 class V7DualStreamLSTM(nn.Module):
 
@@ -153,19 +153,19 @@ class V7DualStreamLSTM(nn.Module):
   ):
     super(V7DualStreamLSTM, self).__init__()
 
-    # Rama Cinemática: 9 entradas (delta_real_m1..4, delta_t, delta_meta_m1..4)
+    # Kinematic Branch: 9 inputs (delta_real_m1..4, delta_t, delta_meta_m1..4)
     self.lstm_kin = nn.LSTM(
         kin_input_size, kin_hidden, num_layers=2, batch_first=True
     )
 
-    # Rama Dinámica: 4 entradas (tension_m1..4)
+    # Dynamic Branch: 4 inputs (tension_m1..4)
     self.lstm_tens = nn.LSTM(
         tens_input_size, tens_hidden, num_layers=1, batch_first=True
     )
 
     self.dropout = nn.Dropout(dropout)
 
-    # Capa de Fusión
+    # Fusion Layer
     self.fc = nn.Sequential(
         nn.Linear(kin_hidden + tens_hidden, 64),
         nn.ReLU(),
@@ -195,13 +195,13 @@ model = V7DualStreamLSTM(
 
 optimizer = optim.AdamW(model.parameters(), lr=0.0005, weight_decay=1e-4)
 
-# 🆕 SCHEDULER AJUSTADO (Patience=12, min_lr=1e-5)
+# 🆕 ADJUSTED SCHEDULER (Patience=12, min_lr=1e-5)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(
     optimizer, mode='min', factor=0.5, patience=15, threshold=1e-5, min_lr=1e-5
 )
 
 # ==========================================
-# 5. BUCLE DE ENTRENAMIENTO CON VALIDACIÓN Y BEST MODEL CHECKPOINT
+# 5. TRAINING LOOP WITH VALIDATION AND BEST MODEL CHECKPOINT
 # ==========================================
 EPOCHS = 160
 best_val_loss = float('inf')
@@ -212,14 +212,14 @@ print(
 )
 
 for epoch in range(EPOCHS):
-  # --- FASE 1: ENTRENAMIENTO ---
+  # --- PHASE 1: TRAINING ---
   model.train()
   train_loss = 0.0
 
   for batch_X, batch_y in train_loader:
     batch_X, batch_y = batch_X.to(device), batch_y.to(device)
 
-    # Separación de entradas V7: 0..8 (Cinemática), 9..12 (Tensiones)
+    # V7 input split: 0..8 (Kinematics), 9..12 (Tensions)
     batch_X_kin = batch_X[:, :, :9]
     batch_X_tens = batch_X[:, :, 9:]
 
@@ -235,7 +235,7 @@ for epoch in range(EPOCHS):
 
   avg_train_loss = train_loss / len(train_loader)
 
-  # --- FASE 2: VALIDACIÓN (Sin cálculo de gradientes) ---
+  # --- PHASE 2: VALIDATION (No gradient computation) ---
   model.eval()
   val_loss = 0.0
 
@@ -253,10 +253,10 @@ for epoch in range(EPOCHS):
 
   avg_val_loss = val_loss / len(val_loader)
 
-  # 🆕 EL SCHEDULER EVALÚA LA PÉRDIDA DE VALIDACIÓN
+  # 🆕 THE SCHEDULER EVALUATES THE VALIDATION LOSS
   scheduler.step(avg_val_loss)
 
-  # 🆕 CHECKPOINT: GUARDAR MEJOR MODELO SEGÚN VAL_LOSS
+  # 🆕 CHECKPOINT: SAVE BEST MODEL ACCORDING TO VAL_LOSS
   if avg_val_loss < best_val_loss:
     best_val_loss = avg_val_loss
     torch.save(model.state_dict(), PATH_PESOS_SALIDA)

@@ -7,17 +7,17 @@ from scipy.signal import butter, filtfilt
 from scipy.spatial.transform import Rotation as R
 
 # =====================================================================
-# 1. PARÁMETROS DEL MODELO PREDICTIVO DIRECTO PARA MPC
+# 1. PARAMETERS OF THE DIRECT PREDICTIVE MODEL FOR MPC
 # =====================================================================
-T_IN = 45  # Pasos de historial pasado (0.75 s a 60 Hz)
-T_OUT = 10 # Pasos de predicción futura (0.25 s a 60 Hz)
-MAX_DELTA_T = 1.0 / 55.0  # Máximo tiempo permitido (55 Hz = ~18.18 ms)
-FS_SISTEMA = 60.0  # Frecuencia de muestreo (60 Hz)
+T_IN = 45  # Past history steps (0.75 s at 60 Hz)
+T_OUT = 10 # Future prediction steps (0.25 s at 60 Hz)
+MAX_DELTA_T = 1.0 / 55.0  # Maximum allowed time (55 Hz = ~18.18 ms)
+FS_SISTEMA = 60.0  # Sampling frequency (60 Hz)
 
 PATH_CSV = 'logs_trayectoria_final_largo.csv'
 
 # =====================================================================
-# 2. CARGA Y LECTURA DEL CSV
+# 2. LOADING AND READING THE CSV
 # =====================================================================
 columnas = [
     'timestamp',
@@ -59,14 +59,14 @@ columnas = [
 
 df = pd.read_csv(PATH_CSV, names=columnas)
 
-# Cálculo del tiempo delta entre muestras
+# Computation of the time delta between samples
 df['delta_t'] = df['t_relativo'].diff().bfill()
 df = df.iloc[1:].reset_index(drop=True)
 
 print(f'✓ Muestras cargadas correctamente ({len(df)} filas)')
 
 # =====================================================================
-# 3. CALIBRACIÓN Y TRANSFORMACIÓN MECÁNICO-GEOMÉTRICA
+# 3. CALIBRATION AND MECHANICAL-GEOMETRIC TRANSFORMATION
 # =====================================================================
 ANGULOS_CALIBRACION = {'m1': 1871.0, 'm2': 1951.0, 'm3': 1485.0, 'm4': 1712.0}
 RANGOS_MANUALES = {'m1': 650.0, 'm2': 650.0, 'm3': 750.0, 'm4': 750.0}
@@ -80,14 +80,14 @@ LIMITES_ESPACIALES = {
 LIMITES_TORQUE = (-500.0, 500.0)
 LIMITES_TENSION = (100.0, 2500.0)
 
-# Posiciones relativas de motores
+# Relative motor positions
 for i in range(1, 5):
   df[f'delta_real_m{i}'] = df[f'real_m{i}'] - ANGULOS_CALIBRACION[f'm{i}']
   df[f'delta_meta_m{i}'] = df[f'meta_m{i}'] - ANGULOS_CALIBRACION[f'm{i}']
 
-# Posición y rotación relativa al marco de la BASE (mismo cálculo que MPC.py
-# en inferencia: p_rel = R_base.inv().apply(p_efector - p_base)). Antes esto
-# era una resta/cuaternión en crudo (marco del mundo), sin rotar.
+# Position and rotation relative to the BASE frame (same computation as MPC.py
+# at inference: p_rel = R_base.inv().apply(p_efector - p_base)). Previously this
+# was a raw subtraction/quaternion (world frame), without rotating.
 p_base_arr = df[['base_x', 'base_y', 'base_z']].values
 p_efector_arr = df[['efector_x', 'efector_y', 'efector_z']].values
 q_base_arr = df[['base_qx', 'base_qy', 'base_qz', 'base_qw']].values
@@ -109,7 +109,7 @@ df['rel_qw'] = q_rel[:, 3]
 
 
 # =====================================================================
-# 4. FILTRADO DIGITAL DE FASE CERO (PASABAJAS + UNWRAP)
+# 4. ZERO-PHASE DIGITAL FILTERING (LOW-PASS + UNWRAP)
 # =====================================================================
 def aplicar_filtro_pasabajas(data, cutoff_hz=4.0, fs_hz=60.0, order=2):
   nyquist = 0.5 * fs_hz
@@ -165,7 +165,7 @@ print('✓ Filtrado completado exitosamente.')
 
 
 # =====================================================================
-# 5. NORMALIZACIÓN AUTOMÁTICA EN RANGO [-1, 1]
+# 5. AUTOMATIC NORMALIZATION TO THE RANGE [-1, 1]
 # =====================================================================
 def calcular_limites_y_escalar(data_frame, nombres_columnas):
   data_array = data_frame[nombres_columnas].values
@@ -216,16 +216,16 @@ def calcular_limites_y_escalar(data_frame, nombres_columnas):
 
 
 # =====================================================================
-# 6. ESTRUCTURACIÓN DE SECUENCIAS DIRECTAS CON FILTRADO ESTRICTO
+# 6. STRUCTURING OF DIRECT SEQUENCES WITH STRICT FILTERING
 # =====================================================================
 def calcular_horizonte_valido(comandos_futuros, comando_candidato,
                                valid_lecture_futuro, delta_t_futuro,
                                umbral_delta_t, t_out):
-  """Número de pasos futuros consecutivos, empezando desde el paso 1, en los
-  que se cumplen SIMULTÁNEAMENTE: 1. el comando (u_futuro) sigue siendo
-  igual a u_cand, 2. valid_lecture == 1 (sin dropout de OptiTrack), 3.
-  delta_t <= umbral_delta_t. Se corta en el PRIMER paso donde cualquiera de
-  las tres falla -- ese paso y los siguientes quedan fuera de la máscara."""
+  """Number of consecutive future steps, starting from step 1, in which
+  the following hold SIMULTANEOUSLY: 1. the command (u_futuro) is still
+  equal to u_cand, 2. valid_lecture == 1 (no OptiTrack dropout), 3.
+  delta_t <= umbral_delta_t. It cuts off at the FIRST step where any of
+  the three fails -- that step and the following ones fall outside the mask."""
   valido = 0
   for t in range(t_out):
     comando_ok = np.allclose(comandos_futuros[t], comando_candidato, atol=1e-6)
@@ -241,11 +241,11 @@ def calcular_horizonte_valido(comandos_futuros, comando_candidato,
 def crear_secuencias_directas_mpc(
     df_raw, columnas_x_hist, columnas_x_fut, columnas_y, t_in=45, t_out=10
 ):
-  """Genera secuencias para predicción directa.
+  """Generates sequences for direct prediction.
 
-  Filtra ventanas únicamente si: 1. La frecuencia cae de 55 Hz en la ventana
-  (delta_t > 18.18 ms). 2. La consigna objetivo (U) cambia durante los 10 pasos
-  futuros.
+  Filters windows only if: 1. The frequency drops below 55 Hz in the window
+  (delta_t > 18.18 ms). 2. The target setpoint (U) changes during the 10 future
+  steps.
   """
   X_scaled, params_x_hist = calcular_limites_y_escalar(df_raw, columnas_x_hist)
   X_fut_scaled, params_x_fut = calcular_limites_y_escalar(
@@ -262,19 +262,19 @@ def crear_secuencias_directas_mpc(
 
   n_muestras = len(df_raw)
 
-  # Recorrido continuo por toda la serie temporal
+  # Continuous sweep over the entire time series
   for i in range(n_muestras - t_in - t_out):
 
-    # 1. Filtro de Frecuencia (< 55 Hz en la ventana completa de t_in + t_out)
+    # 1. Frequency filter (< 55 Hz over the full t_in + t_out window)
     window_delta_t = df_raw['delta_t'].iloc[i : i + t_in + t_out].values
     if np.any(window_delta_t > MAX_DELTA_T):
       descartadas_frec += 1
       continue
 
-    # 2. Horizonte válido: cuántos de los t_out pasos futuros mantienen
-    #    SIMULTÁNEAMENTE el mismo comando, valid_lecture==1 y delta_t bajo
-    #    el umbral -- ya NO se descarta la ventana entera, se guarda cuántos
-    #    pasos son válidos para poder enmascarar el resto en el entrenamiento.
+    # 2. Valid horizon: how many of the t_out future steps keep
+    #    SIMULTANEOUSLY the same command, valid_lecture==1 and delta_t below
+    #    the threshold -- the whole window is NO longer discarded, we store how many
+    #    steps are valid so the rest can be masked during training.
     u_futuros = X_fut_scaled[i + t_in : i + t_in + t_out]  # Shape: (t_out, 4)
     valid_lecture_futuro = df_raw['valid_lecture'].iloc[i + t_in : i + t_in + t_out].values
     delta_t_futuro = df_raw['delta_t'].iloc[i + t_in : i + t_in + t_out].values
@@ -283,7 +283,7 @@ def crear_secuencias_directas_mpc(
         MAX_DELTA_T, t_out,
     )
 
-    # Guardado de la muestra (ya no hay 'continue' -- todas se guardan)
+    # Saving the sample (there is no 'continue' anymore -- all are saved)
     x_hist = X_scaled[i : i + t_in]
     u_cand = X_fut_scaled[i + t_in]
     y_fut = Y_scaled[i + t_in : i + t_in + t_out]
@@ -337,15 +337,15 @@ def procesar_y_guardar_directo(
       t_out=T_OUT,
   )
 
-  # Guardar diccionario con los tensores principales optimizados. Y_t0: la
-  # posición/orientación escalada en t0 (último paso del historial) por
-  # muestra, para entrenar sobre desplazamientos incrementales relativos a
-  # t0 (ver train_pred_incr.py). horizonte_valido: cuántos de los t_out
-  # pasos futuros son válidos (comando constante + valid_lecture==1 +
-  # frecuencia OK) antes del primer corte, para poder enmascarar el resto
-  # en una loss con máscara del lado del entrenamiento. Ambos son
-  # compatibles hacia atrás -- los scripts existentes solo leen X_hist/
-  # U_cand/Y_fut e ignoran claves extra.
+  # Save a dictionary with the optimized main tensors. Y_t0: the
+  # scaled position/orientation at t0 (last history step) per
+  # sample, to train on incremental displacements relative to
+  # t0 (see train_pred_incr.py). horizonte_valido: how many of the t_out
+  # future steps are valid (constant command + valid_lecture==1 +
+  # frequency OK) before the first cut, so the rest can be masked
+  # in a masked loss on the training side. Both are
+  # backward compatible -- the existing scripts only read X_hist/
+  # U_cand/Y_fut and ignore extra keys.
   dataset = {
       'X_hist': X_hist,
       'U_cand': U_cand,
@@ -381,7 +381,7 @@ def procesar_y_guardar_directo(
 
 
 # =====================================================================
-# 7. DEFINICIÓN DE CONFIGURACIONES REQUERIDAS
+# 7. DEFINITION OF REQUIRED CONFIGURATIONS
 # =====================================================================
 cols_x_futuro = [
     'delta_meta_m1',
@@ -405,10 +405,10 @@ cols_torque = ['couple_m1', 'couple_m2', 'couple_m3', 'couple_m4']
 cols_tension = ['tension_m1', 'tension_m2', 'tension_m3', 'tension_m4']
 
 configuraciones_X_hist = {
-    'real_meta_10': cols_base,  # 9 entradas
-    'real_meta_torque_10': cols_base + cols_torque,  # 13 entradas
-    'real_meta_tension_10': cols_base + cols_tension,  # 13 entradas
-    'completo_10': cols_base + cols_torque + cols_tension,  # 17 entradas
+    'real_meta_10': cols_base,  # 9 inputs
+    'real_meta_torque_10': cols_base + cols_torque,  # 13 inputs
+    'real_meta_tension_10': cols_base + cols_tension,  # 13 inputs
+    'completo_10': cols_base + cols_torque + cols_tension,  # 17 inputs
 }
 
 cols_y_sinRot = ['rel_x', 'rel_y', 'rel_z']
@@ -425,7 +425,7 @@ cols_y_conRot = [
 configuraciones_Y = {'sinRot': cols_y_sinRot, 'conRot': cols_y_conRot}
 
 # =====================================================================
-# 8. EJECUCIÓN Y GENERACIÓN DE DATASETS
+# 8. EXECUTION AND GENERATION OF DATASETS
 # =====================================================================
 print(
     f'\n🚀 Generando datasets para MPC Predictivo Directo (T_IN={T_IN},'

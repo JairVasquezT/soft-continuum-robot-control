@@ -6,7 +6,7 @@ import pandas as pd
 from scipy.signal import butter, filtfilt
 
 # =====================================================================
-# 1. CARGA Y LECTURA DEL CSV
+# 1. LOADING AND READING THE CSV
 # =====================================================================
 columnas = [
     'timestamp',
@@ -48,7 +48,7 @@ columnas = [
 
 df = pd.read_csv('largo_20260730_165024_062.csv', names=columnas)
 
-# Cálculo del tiempo delta entre muestras
+# Computation of the time delta between samples
 df['delta_t'] = df['t_relativo'].diff()
 df['delta_t'] = df['delta_t'].bfill()
 df = df.iloc[1:].reset_index(drop=True)
@@ -56,7 +56,7 @@ df = df.iloc[1:].reset_index(drop=True)
 print(f'✓ Muestras cargadas correctamente ({len(df)} filas)')
 
 # =====================================================================
-# 2. SECCIÓN DE CALIBRACIÓN (CENTROS FIJOS Y RANGOS)
+# 2. CALIBRATION SECTION (FIXED CENTERS AND RANGES)
 # =====================================================================
 ANGULOS_CALIBRACION = {'m1': 1871.0, 'm2': 1951.0, 'm3': 1485.0, 'm4': 1712.0}
 
@@ -71,20 +71,20 @@ LIMITES_ESPACIALES = {
 LIMITES_TORQUE = (-400.0, 400.0)
 LIMITES_TENSION = (500.0, 2000.0)
 
-# Aplicar deltas de motores respecto a la posición HOME
+# Apply motor deltas relative to the HOME position
 for i in range(1, 5):
   df[f'delta_real_m{i}'] = df[f'real_m{i}'] - ANGULOS_CALIBRACION[f'm{i}']
   df[f'delta_meta_m{i}'] = df[f'meta_m{i}'] - ANGULOS_CALIBRACION[f'm{i}']
 
 # =====================================================================
-# 3. TRANSFORMACIÓN DE POSICIÓN RELATIVA
+# 3. RELATIVE POSITION TRANSFORMATION
 # =====================================================================
 df['rel_x'] = df['efector_x'] - df['base_x']
 df['rel_y'] = df['efector_y'] - df['base_y']
 df['rel_z'] = df['efector_z'] - df['base_z']
 
 # =====================================================================
-# 4. TRANSFORMACIÓN DE ROTACIÓN RELATIVA (CUATERNIONES)
+# 4. RELATIVE ROTATION TRANSFORMATION (QUATERNIONS)
 # =====================================================================
 wb, xb, yb, zb = (
     df['base_qw'],
@@ -105,12 +105,12 @@ df['rel_qz'] = wb * ze + xb * ye - yb * xe + zb * we
 
 
 # =====================================================================
-# 4.5. FILTRADO PASABAJAS DE FASE CERO (NUEVA SECCIÓN DE LIMPIEZA)
+# 4.5. ZERO-PHASE LOW-PASS FILTERING (NEW CLEANING SECTION)
 # =====================================================================
 def aplicar_filtro_pasabajas(data, cutoff_hz=6.0, fs_hz=60.0, order=2):
-  """Aplica un filtro Butterworth pasabajas bidireccional (filtfilt).
+  """Applies a bidirectional low-pass Butterworth filter (filtfilt).
 
-  Elimina el jitter y picos de velocidad sin introducir desfase temporal.
+  Removes jitter and velocity spikes without introducing time lag.
   """
   nyquist = 0.5 * fs_hz
   normal_cutoff = cutoff_hz / nyquist
@@ -118,11 +118,11 @@ def aplicar_filtro_pasabajas(data, cutoff_hz=6.0, fs_hz=60.0, order=2):
   return filtfilt(b, a, data, axis=0)
 
 
-FS_SISTEMA = 60.0  # Frecuencia de muestreo estimada del sistema (60 Hz)
+FS_SISTEMA = 60.0  # Estimated sampling frequency of the system (60 Hz)
 
 print('🧹 Aplicando filtrado pasabajas de fase cero...')
 
-# A) Filtrar Salidas Y (OptiTrack: Posiciones y Orientaciones)
+# A) Filter Y outputs (OptiTrack: Positions and Orientations)
 cols_y_a_filtrar = [
     'rel_x',
     'rel_y',
@@ -137,7 +137,7 @@ for col in cols_y_a_filtrar:
       df[col].values, cutoff_hz=6.0, fs_hz=FS_SISTEMA
   )
 
-# B) Filtrar Sensores de Fuerzas X (Torques y Tensiones)
+# B) Filter X force sensors (Torques and Tensions)
 for i in range(1, 5):
   df[f'couple_m{i}'] = aplicar_filtro_pasabajas(
       df[f'couple_m{i}'].values, cutoff_hz=4.0, fs_hz=FS_SISTEMA
@@ -146,14 +146,14 @@ for i in range(1, 5):
       df[f'tension_m{i}'].values, cutoff_hz=4.0, fs_hz=FS_SISTEMA
   )
 
-# NOTA: Las posiciones de motores (delta_real_m, delta_meta_m) y delta_t
-# NO se filtran para mantener intacto el instante exacto de conmutación.
+# NOTE: The motor positions (delta_real_m, delta_meta_m) and delta_t
+# are NOT filtered, in order to keep the exact switching instant intact.
 
 print('✓ Filtrado completado en OptiTrack, Torques y Tensiones.')
 
 
 # =====================================================================
-# 5. FUNCIÓN DE ESCALADO HÍBRIDA
+# 5. HYBRID SCALING FUNCTION
 # =====================================================================
 def calcular_limites_y_escalar(data_frame, nombres_columnas):
   data_array = data_frame[nombres_columnas].values
@@ -223,7 +223,7 @@ def procesar_y_guardar(columnas_x, columnas_y, nombre_archivo):
 
 
 # =====================================================================
-# 6. GENERACIÓN DE TODAS LAS COMBINACIONES POSIBLES (v01 a v16)
+# 6. GENERATION OF ALL POSSIBLE COMBINATIONS (v01 to v16)
 # =====================================================================
 X_base = [
     'delta_real_m1',
@@ -281,7 +281,7 @@ for x_tag, y_tag in orden_datasets:
   v_idx += 1
 
 # =====================================================================
-# 7. VISUALIZACIÓN 3D (Submuestreo: 1 de cada 4 datos)
+# 7. 3D VISUALIZATION (Subsampling: 1 out of every 4 samples)
 # =====================================================================
 df_sub = df.iloc[::4]
 

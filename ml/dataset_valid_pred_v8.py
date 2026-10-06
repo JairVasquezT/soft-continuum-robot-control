@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 
 # =====================================================================
-# 1. CONFIGURACIÓN Y ARCHIVOS
+# 1. CONFIGURATION AND FILES
 # =====================================================================
 PATH_CSV_TEST = 'corto_20260730_195350_730.csv'
 PATH_METADATA = 'dataset_pred_v07_completo_10_sinRot_directo_filt_params.json'
@@ -17,7 +17,7 @@ PATH_MODEL_WEIGHTS = 'best_mpc_pinn_predictor_3.pth'
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'🚀 Evaluando en dispositivo: {DEVICE}')
 
-# Cargar metadatos
+# Load metadata
 with open(PATH_METADATA, 'r') as f:
   metadata = json.load(f)
 
@@ -38,7 +38,7 @@ LIMITES_TORQUE = (-500.0, 500.0)
 LIMITES_TENSION = (100.0, 2500.0)
 
 # =====================================================================
-# 2. PROCESAMIENTO Y FILTRADO DEL CSV DE PRUEBA
+# 2. PROCESSING AND FILTERING OF THE TEST CSV
 # =====================================================================
 columnas = [
     'timestamp',
@@ -82,12 +82,12 @@ df = pd.read_csv(PATH_CSV_TEST, names=columnas)
 df['delta_t'] = df['t_relativo'].diff().bfill()
 df = df.iloc[1:].reset_index(drop=True)
 
-# Geometría y Motores
+# Geometry and Motors
 for i in range(1, 5):
   df[f'delta_real_m{i}'] = df[f'real_m{i}'] - ANGULOS_CALIBRACION[f'm{i}']
   df[f'delta_meta_m{i}'] = df[f'meta_m{i}'] - ANGULOS_CALIBRACION[f'm{i}']
 
-# Posición relativa al marco de la BASE
+# Position relative to the BASE frame
 p_base_arr = df[['base_x', 'base_y', 'base_z']].values
 p_efector_arr = df[['efector_x', 'efector_y', 'efector_z']].values
 q_base_arr = df[['base_qx', 'base_qy', 'base_qz', 'base_qw']].values
@@ -100,7 +100,7 @@ df['rel_y'] = p_rel[:, 1]
 df['rel_z'] = p_rel[:, 2]
 
 
-# Filtro Pasabajas
+# Low-pass Filter
 def aplicar_filtro_pasabajas(data, cutoff_hz=6.0, fs_hz=60.0, order=2):
   nyquist = 0.5 * fs_hz
   normal_cutoff = cutoff_hz / nyquist
@@ -120,7 +120,7 @@ for i in range(1, 5):
   )
 
 
-# Escalado estricto usando PARÁMETROS DE ENTRENAMIENTO
+# Strict scaling using TRAINING PARAMETERS
 def escalar_con_parametros(df_raw, columnas_nombres, dict_params):
   scaled_matrix = np.zeros((len(df_raw), len(columnas_nombres)))
   for idx, col in enumerate(columnas_nombres):
@@ -159,24 +159,24 @@ cols_u_fut = [
     'delta_meta_m4',
 ]
 
-# 🔴 CAMBIO AQUÍ: Solo 3 salidas
+# 🔴 CHANGE HERE: Only 3 outputs
 cols_y = ['rel_x', 'rel_y', 'rel_z']
 
 X_scaled = escalar_con_parametros(df, cols_x_hist, X_TRANS)
 U_scaled = escalar_con_parametros(df, cols_u_fut, X_TRANS)
 Y_scaled = escalar_con_parametros(df, cols_y, Y_TRANS)
 
-# Generar Secuencias
-# NOTA: ya NO se descarta la ventana completa si el comando cambia dentro
-# del horizonte futuro (antes: 'if not np.all(u_futuros == u_futuros[0]):
-# continue') -- eso descartaba de más en tramos con cambios de comando
-# frecuentes (p.ej. logs_trayectoria_final.csv, donde cada candidato de
-# exploración dura solo 0.25s = 15 muestras, muy cerca de T_OUT). En vez de
-# eso, se guarda horizonte_comando: cuántos pasos futuros consecutivos
-# desde t+1 mantienen el mismo comando -- igual que horizonte_valido en
-# dataset_pred_filt.py, pero solo con la condición de comando (no hay
-# valid_lecture/delta_t por paso acá). Se usa en la sección 4.5 para no
-# calcular el error de dirección más allá del punto donde cambió el comando.
+# Generate Sequences
+# NOTE: the whole window is NO longer discarded if the command changes within
+# of the future horizon (before: 'if not np.all(u_futuros == u_futuros[0]):
+# continue') -- that discarded too much in segments with command changes
+# frequent (e.g. logs_trayectoria_final.csv, where each candidate of
+# exploration lasts only 0.25s = 15 samples, very close to T_OUT). Instead of
+# that, horizonte_comando is saved: how many consecutive future steps
+# from t+1 keep the same command -- same as horizonte_valido in
+# dataset_pred_filt.py, but only with the command condition (there is no
+# valid_lecture/delta_t per step here). It is used in section 4.5 so as not to
+# compute the direction error beyond the point where the command changed.
 X_hist_list, U_cand_list, Y_fut_list, Horizonte_comando_list = [], [], [], []
 for i in range(len(df) - T_IN - T_OUT):
   window_delta_t = df['delta_t'].iloc[i : i + T_IN + T_OUT].values
@@ -216,7 +216,7 @@ class MPCDirectPredictor(nn.Module):
       hidden_size=128,
       num_layers=2,
       t_out=10,
-      output_dim=3,  # 🔴 CAMBIO AQUÍ: 3 dimensiones por defecto
+      output_dim=3,  # 🔴 CHANGE HERE: 3 dimensions by default
       dropout=0.1,
   ):
     super(MPCDirectPredictor, self).__init__()
@@ -264,11 +264,11 @@ model.load_state_dict(checkpoint['model_state_dict'])
 model.eval()
 
 # =====================================================================
-# 4. INFERENCIA Y EVALUACIÓN EN UNIDADES REALES (MILÍMETROS)
+# 4. INFERENCE AND EVALUATION IN REAL UNITS (MILLIMETERS)
 # =====================================================================
-# En batches -- de una sola pasada, con miles de muestras (más ahora que ya
-# no se descarta la ventana entera por cambio de comando) el LSTM se queda
-# sin memoria de GPU.
+# In batches -- in a single pass, with thousands of samples (more now that
+# the entire window is not discarded due to a command change) the LSTM is left
+# without GPU memory.
 BATCH_SIZE_INFERENCIA = 2048
 Y_pred_chunks = []
 with torch.no_grad():
@@ -281,14 +281,14 @@ Y_pred_scaled = np.concatenate(Y_pred_chunks, axis=0)
 Y_true_scaled = Y_test_scaled.numpy()
 
 
-# Función de Desescalado
+# Descaling Function
 def desescalar_var(val_scaled, col_name, dict_params):
   min_t = dict_params[col_name]['min_t']
   max_t = dict_params[col_name]['max_t']
   return min_t + (val_scaled + 1.0) * (max_t - min_t) / 2.0
 
 
-# Convertir a Metros -> Milímetros
+# Convert to Meters -> Millimeters
 X_pred_mm = desescalar_var(Y_pred_scaled[:, :, 0], 'rel_x', Y_TRANS) * 1000.0
 Y_pred_mm = desescalar_var(Y_pred_scaled[:, :, 1], 'rel_y', Y_TRANS) * 1000.0
 Z_pred_mm = desescalar_var(Y_pred_scaled[:, :, 2], 'rel_z', Y_TRANS) * 1000.0
@@ -297,12 +297,12 @@ X_true_mm = desescalar_var(Y_true_scaled[:, :, 0], 'rel_x', Y_TRANS) * 1000.0
 Y_true_mm = desescalar_var(Y_true_scaled[:, :, 1], 'rel_y', Y_TRANS) * 1000.0
 Z_true_mm = desescalar_var(Y_true_scaled[:, :, 2], 'rel_z', Y_TRANS) * 1000.0
 
-# Máscara de horizonte de comando: el paso j (0-indexado) solo cuenta para
-# el error de posición si el comando se mantuvo constante hasta ahí (mismo
-# criterio que la sección 4.5) -- p.ej. si mandaste +30 en los 4 motores y
-# se sostuvo los 10 pasos, se usan los 10; si a partir del paso 8 mandaste
-# -30, solo se usan los primeros 7 pasos (Horizonte_comando=7) para el
-# error de posición de esa muestra.
+# Command-horizon mask: step j (0-indexed) only counts for
+# the position error if the command stayed constant up to that point (same
+# criterion as section 4.5) -- e.g. if you commanded +30 on all 4 motors and
+# held for all 10 steps, all 10 are used; if from step 8 onward you commanded
+# -30, only the first 7 steps are used (Horizonte_comando=7) for the
+# position error of that sample.
 mask_paso_comando = np.arange(T_OUT)[None, :] < Horizonte_comando[:, None]  # [N, T_OUT]
 n_pasos_validos_pos = mask_paso_comando.sum()
 
@@ -343,26 +343,26 @@ for paso in range(T_OUT):
   )
 
 # =====================================================================
-# 4.5. ERROR ANGULAR ENTRE EL VECTOR DE DESPLAZAMIENTO PREDICHO Y EL REAL
+# 4.5. ANGULAR ERROR BETWEEN THE PREDICTED AND THE REAL DISPLACEMENT VECTOR
 # =====================================================================
-# Compara la DIRECCIÓN del desplazamiento 3D predicho contra la real entre
-# puntos separados por SALTO_ANGULO pasos (p.ej. t+1 vs t+5 con salto=4),
-# NO transiciones consecutivas (t+k -> t+k+1): a un paso de distancia el
-# desplazamiento real es tan chico que la dirección es puro ruido/falsos
-# errores -- con más separación el vector es más largo y la dirección más
-# estable/significativa (mismo criterio que salto_direccion en
-# train_pred.py). El ángulo es el ángulo entre ambos vectores (0° = misma
-# dirección, 180° = opuestos); es la contraparte, en grados y como métrica
-# de evaluación (no de entrenamiento), de la similitud coseno que usa
-# loss_direction_3d en train_pred.py -- en 3D completo, no solo X-Z.
+# Compares the DIRECTION of the predicted 3D displacement against the real one between
+# points separated by SALTO_ANGULO steps (e.g. t+1 vs t+5 with jump=4),
+# NOT consecutive transitions (t+k -> t+k+1): one step apart the
+# real displacement is so small that the direction is pure noise/false
+# errors -- with more separation the vector is longer and the direction more
+# stable/significant (same criterion as salto_direccion in
+# train_pred.py). The angle is the angle between both vectors (0° = same
+# direction, 180° = opposite); it is the counterpart, in degrees and as a metric
+# of evaluation (not training), of the cosine similarity used by
+# loss_direction_3d in train_pred.py -- in full 3D, not just X-Z.
 #
-# Solo se calcula para transiciones (k, k+SALTO_ANGULO) donde el comando se
-# mantuvo constante en TODO ese tramo -- si el comando cambió antes del
-# paso k+SALTO_ANGULO, el modelo nunca vio ese cambio (u_cand es fijo para
-# toda la predicción) y comparar su dirección ahí sería injusto/sin
-# sentido. mask_horizonte_dir[n, k] = True si el paso k+SALTO_ANGULO (el
-# extremo más lejano de la transición) todavía está dentro del tramo de
-# comando constante de la muestra n (Horizonte_comando[n]).
+# Only computed for transitions (k, k+SALTO_ANGULO) where the command
+# stayed constant over that WHOLE segment -- if the command changed before the
+# step k+SALTO_ANGULO, the model never saw that change (u_cand is fixed for
+# whole prediction) and comparing its direction there would be unfair/meaningless
+# sense. mask_horizonte_dir[n, k] = True if step k+SALTO_ANGULO (the
+# farthest end of the transition) is still within the segment of
+# constant command of sample n (Horizonte_comando[n]).
 SALTO_ANGULO = 4
 
 pos_pred_mm = np.stack([X_pred_mm, Y_pred_mm, Z_pred_mm], axis=-1)  # [N, T_OUT, 3]
@@ -373,9 +373,9 @@ dir_true = pos_true_mm[:, SALTO_ANGULO:, :] - pos_true_mm[:, :-SALTO_ANGULO, :] 
 
 norm_pred = np.linalg.norm(dir_pred, axis=-1)
 norm_true = np.linalg.norm(dir_true, axis=-1)
-EPS_MAGNITUD_MM = 0.5  # transiciones donde el desplazamiento real es < 0.5mm
-# no tienen una dirección bien definida (ruido) -- se excluyen del promedio.
-pasos_extremo = np.arange(SALTO_ANGULO, T_OUT)  # k+SALTO_ANGULO para cada columna
+EPS_MAGNITUD_MM = 0.5  # transitions where the real displacement is < 0.5mm
+# do not have a well-defined direction (noise) -- they are excluded from the average.
+pasos_extremo = np.arange(SALTO_ANGULO, T_OUT)  # k+SALTO_ANGULO for each column
 mask_horizonte_dir = pasos_extremo[None, :] < Horizonte_comando[:, None]  # [N, T_OUT-SALTO_ANGULO]
 validas = (norm_pred > EPS_MAGNITUD_MM) & (norm_true > EPS_MAGNITUD_MM) & mask_horizonte_dir
 
@@ -399,21 +399,21 @@ angulo_medio_global = np.mean(angulo_deg[validas])
 print(f'\n📐 ÁNGULO MEDIO GLOBAL (todas las transiciones válidas): '
       f'{angulo_medio_global:.2f}°')
 
-# Filtrar solo transiciones con desplazamiento por encima del ruido de medición.
-# 3mm por paso (16.7ms) implicaría ~180mm/s, más rápido que cualquier tramo de
-# este CSV de test (desplazamiento real máximo observado: 1.84mm/paso, media
-# 0.63mm) -- con ese umbral no queda ninguna muestra. 1.0mm sigue estando muy
-# por encima del piso de ruido típico de OptiTrack (sub-milimétrico) y deja
-# ~17% de las transiciones (las de movimiento más franco) para promediar.
+# Filter only transitions with displacement above the measurement noise.
+# 3mm per step (16.7ms) would imply ~180mm/s, faster than any segment of
+# this test CSV (maximum observed real displacement: 1.84mm/step, mean
+# 0.63mm) -- with that threshold no sample remains. 1.0mm is still well
+# above the typical OptiTrack noise floor (sub-millimeter) and leaves
+# ~17% of the transitions (those with the clearest movement) to average.
 UMBRAL_DESPLAZAMIENTO_MM = 1.0
 
-# pos_t1/pos_t2 = posición REAL en cada par separado por SALTO_ANGULO pasos
-# (pos_true_mm[:, SALTO_ANGULO:, :] - pos_true_mm[:, :-SALTO_ANGULO, :] es
-# exactamente dir_true, ya en mm, así que desplazamiento == norm_true
-# calculado arriba).
+# pos_t1/pos_t2 = REAL position at each pair separated by SALTO_ANGULO steps
+# (pos_true_mm[:, SALTO_ANGULO:, :] - pos_true_mm[:, :-SALTO_ANGULO, :] is
+# exactly dir_true, already in mm, so displacement == norm_true
+# computed above).
 pos_t1 = pos_true_mm[:, :-SALTO_ANGULO, :]
 pos_t2 = pos_true_mm[:, SALTO_ANGULO:, :]
-desplazamiento = np.linalg.norm(pos_t2 - pos_t1, axis=-1)  # ya en mm
+desplazamiento = np.linalg.norm(pos_t2 - pos_t1, axis=-1)  # already in mm
 
 mask_movimiento_real = (desplazamiento > UMBRAL_DESPLAZAMIENTO_MM) & mask_horizonte_dir
 
@@ -423,11 +423,11 @@ print(f'Ángulo medio (solo desplazamientos > {UMBRAL_DESPLAZAMIENTO_MM}mm, coma
       f'({mask_movimiento_real.sum()} muestras)')
 
 # =====================================================================
-# 4.6. DIAGNÓSTICO DE DISCRIMINACIÓN: ¿el predictor distingue entre
-# comandos candidatos distintos, o colapsó a predecir casi lo mismo sin
-# importar u_cand? Ventana de historial fija tomada del CSV (filas
-# R_INICIO_HIST..t0) -- este modelo NO es incremental, predice posición
-# ABSOLUTA directa, así que no hace falta sumar nada a la salida.
+# 4.6. DISCRIMINATION DIAGNOSTIC: does the predictor distinguish between
+# different candidate commands, or collapsed to predicting almost the same without
+# import u_cand? Fixed history window taken from the CSV (rows
+# R_INICIO_HIST..t0) -- this model is NOT incremental, it predicts position
+# ABSOLUTE directly, so nothing needs to be added to the output.
 # =====================================================================
 R_INICIO_HIST = 12715
 r_home = R_INICIO_HIST + T_IN - 1
@@ -440,8 +440,8 @@ historial_fijo = torch.tensor(
 
 
 def escalar_u_cand(delta_ticks):
-  """Escala un comando candidato en ticks crudos (delta respecto a Home)
-  al mismo rango [-1, 1] usado durante el entrenamiento."""
+  """Scales a candidate command in raw ticks (delta relative to Home)
+  to the same [-1, 1] range used during training."""
   radios = np.array([RANGOS_MANUALES[f'm{i}'] for i in range(1, 5)])
   return np.clip(delta_ticks / radios, -1.0, 1.0)
 
@@ -450,7 +450,7 @@ candidatos_ticks = np.array([
     [500, 500, 500, 500],
     [-500, -500, -500, -500],
     [500, -500, 500, -500],
-    [0, 0, 0, 0],  # candidato neutro, de referencia
+    [0, 0, 0, 0],  # neutral reference candidate
 ])
 
 print(f'\nComparación de posición final predicha (t+{T_OUT}) para distintos u_cand:\n')
@@ -459,7 +459,7 @@ for u_ticks in candidatos_ticks:
   u_tensor = torch.tensor(u_scaled, dtype=torch.float32).unsqueeze(0).to(DEVICE)
 
   with torch.no_grad():
-    pred = model(historial_fijo, u_tensor)  # [1, T_OUT, output_dim], posición absoluta escalada
+    pred = model(historial_fijo, u_tensor)  # [1, T_OUT, output_dim], scaled absolute position
 
   pos_final_scaled = pred[0, -1, :3].cpu().numpy()
   x_mm = desescalar_var(pos_final_scaled[0], 'rel_x', Y_TRANS) * 1000.0
@@ -470,14 +470,14 @@ for u_ticks in candidatos_ticks:
         f'x={x_mm:.1f}, y={y_mm:.1f}, z={z_mm:.1f}')
 
 # =====================================================================
-# 5. VISUALIZACIÓN: ROLLOUT CADA 10 VENTANAS SOBRE LA TRAYECTORIA REAL
+# 5. VISUALIZATION: ROLLOUT EVERY 10 WINDOWS OVER THE REAL TRAJECTORY
 # =====================================================================
-# Cada muestra predice T_OUT pasos hacia adelante, no un solo punto. Acá se
-# grafica un abanico de predicción cada PASO_MUESTRAS ventanas (en vez de
-# una separación grande para evitar solape) para seguir de cerca todo el
-# movimiento -- con PASO_MUESTRAS < T_OUT los abanicos consecutivos se
-# solapan a propósito, formando una "banda" que muestra la consistencia de
-# la predicción a lo largo de todo el recorrido.
+# Each sample predicts T_OUT steps ahead, not a single point. Here we
+# plots a prediction fan every PASO_MUESTRAS windows (instead of
+# a large separation to avoid overlap) to closely follow the whole
+# movement -- with PASO_MUESTRAS < T_OUT consecutive fans
+# overlap on purpose, forming a "band" that shows the consistency of
+# the prediction along the whole path.
 PASO_MUESTRAS = 30
 
 real_continuo = np.stack([X_true_mm[:, 0], Y_true_mm[:, 0], Z_true_mm[:, 0]], axis=1)
@@ -497,9 +497,9 @@ for j, i in enumerate(anclas):
   color = cmap(j / max(1, len(anclas) - 1))
   origen = real_continuo[i:i + 1]
   rollout = np.stack([X_pred_mm[i, :], Y_pred_mm[i, :], Z_pred_mm[i, :]], axis=1)
-  # t0 solo como punto (sin unir con línea) -- la línea conecta únicamente
-  # t+1..t+T_OUT, para que la tendencia del rollout se vea sin el salto
-  # inicial t0->t+1 dominando el trazo.
+  # t0 only as a point (not joined with a line) -- the line connects only
+  # t+1..t+T_OUT, so that the rollout trend is visible without the jump
+  # initial t0->t+1 dominating the trace.
   ax1.plot(rollout[:, 0], rollout[:, 1], rollout[:, 2], color=color, linewidth=2)
   ax1.scatter(*origen[0], color=color, s=15, marker='o')
 ax1.set_xlabel('X (mm)')
@@ -516,7 +516,7 @@ for k, (nombre_eje, real_eje, pred_eje) in enumerate(ejes):
            label='Real' if k == 0 else None)
   for j, i in enumerate(anclas):
     color = cmap(j / max(1, len(anclas) - 1))
-    # t0 solo como punto; la línea conecta únicamente t+1..t+T_OUT.
+    # t0 only as a point; the line connects only t+1..t+T_OUT.
     ax.scatter(i, real_eje[i], color=color, s=12, zorder=3)
     t_rollout = np.arange(i + 1, i + T_OUT + 1)
     ax.plot(t_rollout, pred_eje[i, :], color=color, linewidth=1.5)

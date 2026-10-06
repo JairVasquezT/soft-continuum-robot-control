@@ -7,11 +7,11 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, Subset
 
 # =====================================================================
-# 1. CONFIGURACIÓN E HIPERPARÁMETROS
+# 1. CONFIGURATION AND HYPERPARAMETERS
 # =====================================================================
-# Comparación directa contra train_pred.py: MISMO dataset, MISMA PINNLossMPC
-# (con la ponderación por eje + dirección X-Z), MISMO split -- la única
-# diferencia es el encoder recurrente (GRU en vez de LSTM, ver sección 3).
+# Direct comparison against train_pred.py: SAME dataset, SAME PINNLossMPC
+# (with axis weighting + X-Z direction), SAME split -- the only
+# difference is the recurrent encoder (GRU instead of LSTM, see section 3).
 PATH_DATASET = 'dataset_pred_v08_completo_15_conRot_directo_filt.npy'
 PATH_METADATA = 'dataset_pred_v08_completo_15_conRot_directo_filt_params.json'
 MODEL_SAVE_PATH = 'best_mpc_pinn_predictor_gru_15.pth'
@@ -26,15 +26,15 @@ DROPOUT = 0.1
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'🚀 Entrenando (GRU) en dispositivo: {DEVICE}')
 
-# Cargar parámetros de escalado desde el JSON
+# Load scaling parameters from the JSON
 with open(PATH_METADATA, 'r') as f:
   metadata = json.load(f)
 params_y = metadata['Y_transformer']
 
 
 # =====================================================================
-# 2. FUNCIÓN DE PÉRDIDA INFORMADA POR LA FÍSICA (PINN LOSS) -- idéntica a
-# train_pred.py, sin cambios.
+# 2. PHYSICS-INFORMED LOSS FUNCTION (PINN LOSS) -- identical to
+# train_pred.py, unchanged.
 # =====================================================================
 class PINNLossMPC(nn.Module):
 
@@ -42,18 +42,18 @@ class PINNLossMPC(nn.Module):
       self,
       params_y,
       w_mse=100.0,
-      w_direction_3d=30.0,  # Alineación angular del rollout en 3D completo (no solo X-Z)
+      w_direction_3d=30.0,  # Angular alignment of the rollout in full 3D (not just X-Z)
       w_sph_max=10.0,
       w_sph_min=10.0,
       w_cyl_max=10.0,
       w_speed=0.0,
       w_smooth=0.0,
       w_quat=5.0,
-      max_step_dist=0.01,  # Máximo desplazamiento permitido por paso (1.5 cm)
-      pesos_ejes_mse=(1.5, 1.0, 2.2),  # [X, Y, Z] -- Z y X (horizontal) pesan
-      # más que Y (altura) porque el error observado ahí es mayor (~4.9mm/
-      # ~3.5mm vs. Y) y porque el problema de las "agujas" perpendiculares a
-      # la curva real ocurre en el plano X-Z, no en la altura.
+      max_step_dist=0.01,  # Maximum displacement allowed per step (1.5 cm)
+      pesos_ejes_mse=(1.5, 1.0, 2.2),  # [X, Y, Z] -- Z and X (horizontal) weigh
+      # more than Y (height) because the error observed there is larger (~4.9mm/
+      # ~3.5mm vs. Y) and because the problem of the "needles" perpendicular to
+      # the real curve occurs in the X-Z plane, not in height.
   ):
     super(PINNLossMPC, self).__init__()
     self.params_y = params_y
@@ -70,7 +70,7 @@ class PINNLossMPC(nn.Module):
 
     self.mse = nn.MSELoss()
 
-    # Extraer límites para desescalar de [-1, 1] a Metros Reales
+    # Extract limits to unscale from [-1, 1] to Real Meters
     self.min_x = params_y['rel_x']['min_t']
     self.max_x = params_y['rel_x']['max_t']
     self.min_y = params_y['rel_y']['min_t']
@@ -92,40 +92,40 @@ class PINNLossMPC(nn.Module):
     return x_real, y_real, z_real
 
   def forward(self, y_pred, y_true):
-    # 1. Pérdida Principal MSE (Puntos objetivo, espacio escalado [-1,1]) --
-    # se sigue devolviendo tal cual para no romper la comparabilidad de
-    # best_val_mse entre corridas.
+    # 1. Main MSE Loss (Target points, scaled space [-1,1]) --
+    # still returned as-is so as not to break the comparability of
+    # best_val_mse across runs.
     loss_mse = self.mse(y_pred, y_true)
 
-    # 1a. MSE ponderado por eje, en el MISMO espacio escalado [-1,1] que usa
-    # loss_mse (NO en metros reales) -- w_mse ya está calibrado para esta
-    # escala. rel_y tiene un rango de solo 150mm contra 440mm de X/Z, así
-    # que ponderar en metros reales encoge el término de Y ~178x y el de
-    # X/Z ~21x respecto al escalado -- sin subir w_mse en esa misma
-    # proporción, esta pérdida queda opacada por loss_direction_3d y las
-    # geométricas, y el modelo deja de priorizar acertar la posición.
+    # 1a. Axis-weighted MSE, in the SAME scaled space [-1,1] used by
+    # loss_mse (NOT in real meters) -- w_mse is already calibrated for this
+    # scale. rel_y has a range of only 150mm versus 440mm for X/Z, so
+    # weighting in real meters shrinks the Y term ~178x and the X/Z term
+    # ~21x relative to the scaled version -- without raising w_mse in that same
+    # proportion, this loss is overshadowed by loss_direction_3d and the
+    # geometric ones, and the model stops prioritizing getting the position right.
     error_xyz_escalado = (y_pred[:, :, :3] - y_true[:, :, :3]) ** 2  # [batch, T_OUT, 3]
     loss_mse_ponderado = torch.mean(error_xyz_escalado * self.pesos_ejes_mse)
 
-    # 2. Desescalar a Metros Reales -- de AMBOS, predicción y verdad. Esto sí
-    # hace falta en metros: las penalizaciones geométricas comparan contra
-    # umbrales físicos fijos (0.335m, etc.), y loss_direction_3d es
-    # invariante a escala (cosine similarity), así que da igual.
+    # 2. Unscale to Real Meters -- BOTH prediction and ground truth. This one is
+    # needed in meters: the geometric penalties compare against
+    # fixed physical thresholds (0.335m, etc.), and loss_direction_3d is
+    # scale-invariant (cosine similarity), so it does not matter.
     x_pred, y_pred_real, z_pred = self.desescalar_xyz(y_pred)
     x_true, y_true_real, z_true = self.desescalar_xyz(y_true)
 
     pos_pred = torch.stack([x_pred, y_pred_real, z_pred], dim=-1)  # [batch, T_OUT, 3]
     pos_true = torch.stack([x_true, y_true_real, z_true], dim=-1)  # [batch, T_OUT, 3]
 
-    # 2b. Pérdida de DIRECCIÓN en 3D completo (X, Y, Z), con similitud coseno
-    # entre desplazamientos consecutivos real vs. predicho. Se excluyen las
-    # transiciones donde el desplazamiento real en 3D es menor a 0.5mm
-    # (dirección real poco significativa/ruidosa ahí).
+    # 2b. DIRECTION loss in full 3D (X, Y, Z), with cosine similarity
+    # between consecutive displacements, real vs. predicted. Transitions
+    # where the real 3D displacement is less than 0.5mm are excluded
+    # (the real direction is barely meaningful/noisy there).
     dir_pred_3d = pos_pred[:, 1:, :] - pos_pred[:, :-1, :]  # [batch, T_OUT-1, 3]
     dir_true_3d = pos_true[:, 1:, :] - pos_true[:, :-1, :]  # [batch, T_OUT-1, 3]
 
-    norm_true_3d = torch.norm(dir_true_3d, dim=-1)  # Distancia euclidiana 3D por paso
-    mask_movimiento = norm_true_3d > 0.0005  # Solo penalizar si se movió más de 0.5 mm en 3D
+    norm_true_3d = torch.norm(dir_true_3d, dim=-1)  # 3D Euclidean distance per step
+    mask_movimiento = norm_true_3d > 0.0005  # Only penalize if it moved more than 0.5 mm in 3D
 
     cos_sim_3d = torch.nn.functional.cosine_similarity(
         dir_pred_3d, dir_true_3d, dim=-1, eps=1e-6
@@ -137,11 +137,11 @@ class PINNLossMPC(nn.Module):
     else:
       loss_direction_3d = torch.tensor(0.0, device=y_pred.device)
 
-    # Distancias Geométricas (sobre la posición PREDICHA)
+    # Geometric Distances (on the PREDICTED position)
     dist_esferica_cuadrada = x_pred**2 + y_pred_real**2 + z_pred**2
     dist_cilindrica_cuadrada = x_pred**2 + z_pred**2
 
-    # A) Penalizaciones Geométricas Espaciales
+    # A) Spatial Geometric Penalties
     pen_sph_max = torch.relu(dist_esferica_cuadrada - 0.335**2)
     pen_sph_min = torch.relu(0.22**2 - dist_esferica_cuadrada)
     pen_cyl_max = torch.relu(dist_cilindrica_cuadrada - 0.23**2)
@@ -152,25 +152,25 @@ class PINNLossMPC(nn.Module):
         + self.w_cyl_max * torch.mean(pen_cyl_max)
     )
 
-    # B) Restricción de Velocidad Máxima por Paso (Continuidad Física)
+    # B) Maximum Per-Step Velocity Constraint (Physical Continuity)
     paso_diffs = pos_pred[:, 1:, :] - pos_pred[:, :-1, :]  # [batch, T_OUT-1, 3]
     dist_por_paso = torch.norm(paso_diffs, dim=-1)  # [batch, T_OUT-1]
 
     pen_velocidad = torch.relu(dist_por_paso - self.max_step_dist)
     loss_speed = self.w_speed * torch.mean(pen_velocidad)
 
-    # C) Restricción de Suavizado Temporal (Minimizar Aceleración / Jerk)
+    # C) Temporal Smoothing Constraint (Minimize Acceleration / Jerk)
     aceleracion = paso_diffs[:, 1:, :] - paso_diffs[:, :-1, :]  # [batch, T_OUT-2, 3]
     loss_smooth = self.w_smooth * torch.mean(aceleracion**2)
 
-    # D) Normalización de Cuaterniones (Si existen 7 salidas)
+    # D) Quaternion Normalization (If there are 7 outputs)
     loss_quat = 0.0
     if y_pred.shape[-1] == 7:
       q = y_pred[:, :, 3:]  # [batch, T_OUT, 4]
       norm_q = torch.norm(q, dim=-1)
       loss_quat = self.w_quat * torch.mean((norm_q - 1.0) ** 2)
 
-    # PÉRDIDA TOTAL PINN
+    # TOTAL PINN LOSS
     total_loss = (
         self.w_mse * loss_mse_ponderado
         + self.w_direction_3d * loss_direction_3d
@@ -183,10 +183,10 @@ class PINNLossMPC(nn.Module):
 
 
 # =====================================================================
-# 3. DATASET Y MODELO -- ÚNICA DIFERENCIA REAL CON train_pred.py: el
-# encoder recurrente es GRU en vez de LSTM (menos parámetros -- funde las
-# puertas de olvido/entrada en una sola puerta de actualización y no tiene
-# estado de celda separado -- comparar val_mse contra la versión LSTM).
+# 3. DATASET AND MODEL -- ONLY REAL DIFFERENCE WITH train_pred.py: the
+# recurrent encoder is GRU instead of LSTM (fewer parameters -- it merges the
+# forget/input gates into a single update gate and has no
+# separate cell state -- compare val_mse against the LSTM version).
 # =====================================================================
 class MPCDataset(Dataset):
 
@@ -240,7 +240,7 @@ class MPCDirectPredictorGRU(nn.Module):
     self.output_dim = output_dim
 
   def forward(self, x_hist, u_cand):
-    out, _ = self.encoder_gru(x_hist)  # GRU: solo hidden state, sin cell state
+    out, _ = self.encoder_gru(x_hist)  # GRU: hidden state only, no cell state
     last_hidden = out[:, -1, :]
     combined = torch.cat([last_hidden, u_cand], dim=1)
     y_pred_flat = self.mlp(combined)
@@ -248,9 +248,9 @@ class MPCDirectPredictorGRU(nn.Module):
 
 
 # =====================================================================
-# 4. PREPARACIÓN DE DATOS -- SPLIT TRAIN/VAL REPARTIDO Y SIN FUGA (sobre
-# 'largo'), idéntico a train_pred.py. 'corto' queda reservado como test
-# ciego final.
+# 4. DATA PREPARATION -- DISTRIBUTED, LEAK-FREE TRAIN/VAL SPLIT (over
+# 'largo'), identical to train_pred.py. 'corto' stays reserved as the final
+# blind test.
 # =====================================================================
 FRAC_VAL = 0.10
 N_BLOQUES = 20
@@ -309,7 +309,7 @@ val_loader = DataLoader(
 )
 
 # =====================================================================
-# 5. INSTANCIACIÓN Y OPTIMIZADOR
+# 5. INSTANTIATION AND OPTIMIZER
 # =====================================================================
 model = MPCDirectPredictorGRU(
     input_hist_dim=input_hist_dim,
@@ -324,7 +324,7 @@ model = MPCDirectPredictorGRU(
 n_params = sum(p.numel() for p in model.parameters())
 print(f'🧮 Parámetros totales del modelo (GRU): {n_params:,}')
 
-# Criterio PINN (idéntico a train_pred.py)
+# PINN criterion (identical to train_pred.py)
 criterion = PINNLossMPC(params_y=params_y).to(DEVICE)
 
 optimizer = optim.AdamW(
@@ -335,7 +335,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(
 )
 
 # =====================================================================
-# 6. ENTRENAMIENTO
+# 6. TRAINING
 # =====================================================================
 best_val_mse = float('inf')
 history_train_loss, history_val_mse = [], []
@@ -365,7 +365,7 @@ for epoch in range(1, EPOCHS + 1):
 
   train_loss /= train_size
 
-  # Validación
+  # Validation
   model.eval()
   val_mse_sum = 0.0
 

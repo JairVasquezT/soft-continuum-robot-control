@@ -1,7 +1,7 @@
 """Standalone plot: 20 waypoints in 3D, colored by how many of the 5 repeated
 attempts (run_experimento_repeticiones) succeeded at each one.
 
-Uso: python result_3d.py
+Usage: python result_3d.py
 """
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 -- registers the 3D projector
