@@ -1,0 +1,9 @@
+numpy
+scipy
+pandas
+matplotlib
+scikit-learn
+joblib
+torch
+dynamixel-sdk
+Phidget22
