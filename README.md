@@ -12,7 +12,7 @@ Developed during a research internship at ISIR (Sorbonne Université). The assoc
 
 ### Demo video
 
-<!-- Add the demo video link here, e.g. [Watch the video](https://...) -->
+[Watch the demo video](https://youtu.be/M6Z-nR-Qsso)
 
 ### What the code does
 
@@ -111,7 +111,7 @@ Développé lors d'un stage de recherche à l'ISIR (Sorbonne Université). L'art
 
 ### Vidéo de démonstration
 
-<!-- Ajouter ici le lien de la vidéo, par ex. [Voir la vidéo](https://...) -->
+[Voir la vidéo de démonstration](https://youtu.be/M6Z-nR-Qsso)
 
 ### Ce que fait le code
 
